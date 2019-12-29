@@ -23,6 +23,7 @@ import org.apache.rocketmq.logging.InternalLoggerFactory;
 import org.apache.rocketmq.namesrv.NamesrvController;
 import org.apache.rocketmq.remoting.ChannelEventListener;
 
+// 监听到channel关闭事件后调用RouteInfoManager的onChannelDestroy方法
 public class BrokerHousekeepingService implements ChannelEventListener {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
     private final NamesrvController namesrvController;

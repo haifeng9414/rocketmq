@@ -44,7 +44,9 @@ import org.slf4j.LoggerFactory;
 public class NamesrvStartup {
 
     private static InternalLogger log;
+    // 保存configFile命令行选项指定的配置文件中的属性
     private static Properties properties = null;
+    // 用于解析命令行参数
     private static CommandLine commandLine = null;
 
     public static void main(String[] args) {
@@ -54,7 +56,9 @@ public class NamesrvStartup {
     public static NamesrvController main0(String[] args) {
 
         try {
+            // 根据命令行参数创建NamesrvController
             NamesrvController controller = createNamesrvController(args);
+            // 调用NamesrvController的initialize方法和start方法
             start(controller);
             String tip = "The Name Server boot success. serializeType=" + RemotingCommand.getSerializeTypeConfigInThisServer();
             log.info(tip);
@@ -69,10 +73,13 @@ public class NamesrvStartup {
     }
 
     public static NamesrvController createNamesrvController(String[] args) throws IOException, JoranException {
+        // 设置版本号到系统参数
         System.setProperty(RemotingCommand.REMOTING_VERSION_KEY, Integer.toString(MQVersion.CURRENT_VERSION));
         //PackageConflictDetect.detectFastjson();
 
+        // 创建命令行解析类
         Options options = ServerUtil.buildCommandlineOptions(new Options());
+        // option包括configFile和printConfigItem选项，分别用于指定Name Server的配置文件路径和是否打印所有配置项
         commandLine = ServerUtil.parseCmdLine("mqnamesrv", args, buildCommandlineOptions(options), new PosixParser());
         if (null == commandLine) {
             System.exit(-1);
@@ -81,6 +88,7 @@ public class NamesrvStartup {
 
         final NamesrvConfig namesrvConfig = new NamesrvConfig();
         final NettyServerConfig nettyServerConfig = new NettyServerConfig();
+        // Name Server监听9876端口
         nettyServerConfig.setListenPort(9876);
         if (commandLine.hasOption('c')) {
             String file = commandLine.getOptionValue('c');
@@ -88,6 +96,7 @@ public class NamesrvStartup {
                 InputStream in = new BufferedInputStream(new FileInputStream(file));
                 properties = new Properties();
                 properties.load(in);
+                // 将配置文件中的属性设置到对应的config中，原理就是遍历所有的setter方法，用反射设置属性值
                 MixAll.properties2Object(properties, namesrvConfig);
                 MixAll.properties2Object(properties, nettyServerConfig);
 
@@ -98,6 +107,7 @@ public class NamesrvStartup {
             }
         }
 
+        // 如果有-p选项，则打印config对象的属性，原理也是利用反射，遍历所有的field并打印
         if (commandLine.hasOption('p')) {
             InternalLogger console = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_CONSOLE_NAME);
             MixAll.printObjectProperties(console, namesrvConfig);
@@ -105,6 +115,7 @@ public class NamesrvStartup {
             System.exit(0);
         }
 
+        // 如果属性是直接指定在命令行，则在这里设置到config
         MixAll.properties2Object(ServerUtil.commandLine2Properties(commandLine), namesrvConfig);
 
         if (null == namesrvConfig.getRocketmqHome()) {
@@ -112,6 +123,7 @@ public class NamesrvStartup {
             System.exit(-2);
         }
 
+        // 日志相关设置
         LoggerContext lc = (LoggerContext) LoggerFactory.getILoggerFactory();
         JoranConfigurator configurator = new JoranConfigurator();
         configurator.setContext(lc);
@@ -120,11 +132,13 @@ public class NamesrvStartup {
 
         log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
 
+        // 打印config的属性到日志
         MixAll.printObjectProperties(log, namesrvConfig);
         MixAll.printObjectProperties(log, nettyServerConfig);
 
         final NamesrvController controller = new NamesrvController(namesrvConfig, nettyServerConfig);
 
+        // 保存configFile选项指定的配置文件中的属性到NamesrvController的allConfigs属性
         // remember all configs to prevent discard
         controller.getConfiguration().registerConfig(properties);
 
@@ -143,6 +157,7 @@ public class NamesrvStartup {
             System.exit(-3);
         }
 
+        // 添加hook，在JVM关闭时调用controller的shutdown方法
         Runtime.getRuntime().addShutdownHook(new ShutdownHookThread(log, new Callable<Void>() {
             @Override
             public Void call() throws Exception {

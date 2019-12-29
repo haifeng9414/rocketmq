@@ -75,6 +75,7 @@ public class NamesrvController {
 
     public boolean initialize() {
 
+        // 加载kvConfig.json文件的内容，保存到KVConfigManager的configTable属性
         this.kvConfigManager.load();
 
         this.remotingServer = new NettyRemotingServer(this.nettyServerConfig, this.brokerHousekeepingService);
@@ -82,8 +83,10 @@ public class NamesrvController {
         this.remotingExecutor =
             Executors.newFixedThreadPool(nettyServerConfig.getServerWorkerThreads(), new ThreadFactoryImpl("RemotingExecutorThread_"));
 
+        // 注册一个NettyRequestProcessor到remotingServer，用于处理netty监听到的各种网络请求，默认实现是DefaultRequestProcessor
         this.registerProcessor();
 
+        // 定时检查broker心跳
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -92,6 +95,7 @@ public class NamesrvController {
             }
         }, 5, 10, TimeUnit.SECONDS);
 
+        // 定时打印kvConfig.json文件配置
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -103,6 +107,8 @@ public class NamesrvController {
         if (TlsSystemConfig.tlsMode != TlsMode.DISABLED) {
             // Register a listener to reload SslContext
             try {
+                // 监听tls配置文件是否有变化，有变化则重载配置，监听变化的实现原理是用一个线程每隔500毫秒获取一次
+                // 被监听文件的hash并和之前的hash比较，不同则调用这里的onChanged
                 fileWatchService = new FileWatchService(
                     new String[] {
                         TlsSystemConfig.tlsServerCertPath,
