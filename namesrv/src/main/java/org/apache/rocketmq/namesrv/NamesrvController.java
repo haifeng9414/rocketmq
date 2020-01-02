@@ -86,7 +86,7 @@ public class NamesrvController {
         // 注册一个NettyRequestProcessor到remotingServer，用于处理netty监听到的各种网络请求，默认实现是DefaultRequestProcessor
         this.registerProcessor();
 
-        // 定时检查broker心跳
+        // 定时扫描所有broker节点，close所有过期的节点的channel
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
