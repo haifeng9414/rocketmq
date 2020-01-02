@@ -164,6 +164,8 @@ public class RouteInfoManager {
                 if (null != topicConfigWrapper
                     && MixAll.MASTER_ID == brokerId) { // 如果是master节点
                     // 判断之前的和现在的dataVersion不相等，或者如果是第一次注册brokerId和brokerAddr的关系
+                    // 每个broker节点自己维护dataVersion，每次broker节点的topic有更新时，其将dataVersion + 1
+                    // 这里发现dataVersion没有变化就不做更新操作，而broker节点也就没必要在心跳中包含topic信息占用带宽
                     if (this.isBrokerTopicConfigChanged(brokerAddr, topicConfigWrapper.getDataVersion())
                         || registerFirst) {
                         ConcurrentMap<String, TopicConfig> tcTable =
