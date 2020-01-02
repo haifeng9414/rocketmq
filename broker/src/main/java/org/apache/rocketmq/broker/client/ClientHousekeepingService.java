@@ -39,7 +39,7 @@ public class ClientHousekeepingService implements ChannelEventListener {
     }
 
     public void start() {
-
+        // 每隔10秒检查一次未激活的channel
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
