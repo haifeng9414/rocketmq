@@ -53,6 +53,8 @@ public class KVConfigManager {
             log.warn("Load KV config table exception", e);
         }
         if (content != null) {
+            // 加载kvConfigPath的文件内容，反序列化为KVConfigSerializeWrapper对象，保存解析到的
+            // HashMap<String/* Namespace */, HashMap<String/* Key */, String/* Value */>>到当前的configTable
             KVConfigSerializeWrapper kvConfigSerializeWrapper =
                 KVConfigSerializeWrapper.fromJson(content, KVConfigSerializeWrapper.class);
             if (null != kvConfigSerializeWrapper) {
@@ -62,6 +64,7 @@ public class KVConfigManager {
         }
     }
 
+    // 在指定namespace下添加指定的kv
     public void putKVConfig(final String namespace, final String key, final String value) {
         try {
             this.lock.writeLock().lockInterruptibly();
@@ -88,9 +91,11 @@ public class KVConfigManager {
             log.error("putKVConfig InterruptedException", e);
         }
 
+        // 持久化结果
         this.persist();
     }
 
+    // 保存当前configTable的内容保存到kvConfigPath文件
     public void persist() {
         try {
             this.lock.readLock().lockInterruptibly();
@@ -115,6 +120,7 @@ public class KVConfigManager {
 
     }
 
+    // 删除指定namespace下的key
     public void deleteKVConfig(final String namespace, final String key) {
         try {
             this.lock.writeLock().lockInterruptibly();
@@ -132,9 +138,11 @@ public class KVConfigManager {
             log.error("deleteKVConfig InterruptedException", e);
         }
 
+        // 持久化结果
         this.persist();
     }
 
+    // 返回指定namespace下的kv的字节数组
     public byte[] getKVListByNamespace(final String namespace) {
         try {
             this.lock.readLock().lockInterruptibly();
@@ -155,6 +163,7 @@ public class KVConfigManager {
         return null;
     }
 
+    // 返回指定namespace下的value
     public String getKVConfig(final String namespace, final String key) {
         try {
             this.lock.readLock().lockInterruptibly();
@@ -173,6 +182,7 @@ public class KVConfigManager {
         return null;
     }
 
+    // 打印当前configTable的内容到日志
     public void printAllPeriodically() {
         try {
             this.lock.readLock().lockInterruptibly();
