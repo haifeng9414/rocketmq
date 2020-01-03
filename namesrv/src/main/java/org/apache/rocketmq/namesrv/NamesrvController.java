@@ -78,8 +78,10 @@ public class NamesrvController {
         // 加载kvConfig.json文件的内容，保存到KVConfigManager的configTable属性
         this.kvConfigManager.load();
 
+        // NettyRemotingServer封装了Netty相关工作
         this.remotingServer = new NettyRemotingServer(this.nettyServerConfig, this.brokerHousekeepingService);
 
+        // 创建一个线程池，NettyRemotingServer会用到
         this.remotingExecutor =
             Executors.newFixedThreadPool(nettyServerConfig.getServerWorkerThreads(), new ThreadFactoryImpl("RemotingExecutorThread_"));
 
