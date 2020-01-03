@@ -372,6 +372,10 @@ public abstract class NettyRemotingAbstract {
      */
     public void scanResponseTable() {
         final List<ResponseFuture> rfList = new LinkedList<ResponseFuture>();
+        // responseTable保存了所有异步调用的还没有完成的Future，这里检查这些Future是否超时（在timeout基础上再加上1秒作为超时时间）
+        // 所有超时的Future都保存到rfList在最后分别调用executeInvokeCallback方法，该方法会执行ResponseFuture的invokeCallback
+        // 通知调用方异步操作完成了。对于一个ResponseFuture多次调用executeInvokeCallback是幂等的。针对scanResponseTable的这种实现，
+        // ResponseFuture的invokeCallback的实现，也就是调用方传入的invokeCallback中需要判断是否超时
         Iterator<Entry<Integer, ResponseFuture>> it = this.responseTable.entrySet().iterator();
         while (it.hasNext()) {
             Entry<Integer, ResponseFuture> next = it.next();
