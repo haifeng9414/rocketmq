@@ -291,6 +291,9 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
                 this.timer.cancel();
             }
 
+            // 优雅的关闭eventLoopGroupBoss，实际调用的是shutdownGracefully(2, 15, TimeUnit.SECONDS)方法，
+            // 第一个参数quietPeriod表示在2秒内如果没有任务提交则关闭，否则重新计算quietPeriod时间，直到第二个
+            // 参数timeout，直接进行关闭
             this.eventLoopGroupBoss.shutdownGracefully();
 
             this.eventLoopGroupSelector.shutdownGracefully();
