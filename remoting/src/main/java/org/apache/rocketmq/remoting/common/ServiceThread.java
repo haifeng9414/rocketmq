@@ -49,6 +49,7 @@ public abstract class ServiceThread implements Runnable {
         this.stopped = true;
         log.info("shutdown thread " + this.getServiceName() + " interrupt " + interrupt);
         synchronized (this) {
+            // 可能有其他线程会wait在ServiceThread对象，所以当shutdown时，这里唤醒等待的线程
             if (!this.hasNotified) {
                 this.hasNotified = true;
                 this.notify();
@@ -61,6 +62,7 @@ public abstract class ServiceThread implements Runnable {
             }
 
             long beginTime = System.currentTimeMillis();
+            // 等待线程结束，最多等待jointime的时间
             this.thread.join(this.getJointime());
             long elapsedTime = System.currentTimeMillis() - beginTime;
             log.info("join thread " + this.getServiceName() + " elapsed time(ms) " + elapsedTime + " "
