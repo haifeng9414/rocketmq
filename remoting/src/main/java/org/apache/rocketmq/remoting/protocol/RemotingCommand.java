@@ -413,7 +413,6 @@ public class RemotingCommand {
     /*
     根据该方法的实现，可以发现RocketMQ的传输协议格式：
 
-
     length | headerLength & serializeType | header | body
     第一个部分length占4个字节，表示不包括自己后面所有内容的长度
     第二个部分headerLength & serializeType占4个字节，表示了header部分的长度和序列化类型，可以看markProtocolType方法注释
@@ -515,7 +514,7 @@ public class RemotingCommand {
     }
 
     // 该方法和encode方法的不同在于，body的长度取决于传入的参数，而不是当前RemotingCommand对象自身的body，使得最后返回的字节数组
-    // 的第一部分的值带有body的长度，但是返回的字节数组中没有body
+    // 的第一部分的值带有body的长度，但是返回的字节数组中没有body。该方法在只想要发送请求的header而不想发送请求的消息主体时很有用。
     public ByteBuffer encodeHeader(final int bodyLength) {
         // 1> header length size
         int length = 4;
