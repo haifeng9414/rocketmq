@@ -35,8 +35,12 @@ public class NettyEncoder extends MessageToByteEncoder<RemotingCommand> {
     public void encode(ChannelHandlerContext ctx, RemotingCommand remotingCommand, ByteBuf out)
         throws Exception {
         try {
+            // 将remotingCommand对象序列化为字节数组，字节数组中不包括body的内容，但是长度信息中加上了body的长度
             ByteBuffer header = remotingCommand.encodeHeader();
             out.writeBytes(header);
+            // 获取body并写入out中，实际上这里的remotingCommand.encodeHeader()方法和remotingCommand.getBody()方法
+            // 可以直接用remotingCommand.encode()方法代替，但是分开调用能够区分出header部分和body部分，逻辑更清晰，至少
+            // 在这里是这样的。
             byte[] body = remotingCommand.getBody();
             if (body != null) {
                 out.writeBytes(body);
