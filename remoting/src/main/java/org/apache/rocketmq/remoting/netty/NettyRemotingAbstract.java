@@ -202,7 +202,7 @@ public abstract class NettyRemotingAbstract {
     // 处理收到的请求
     public void processRequestCommand(final ChannelHandlerContext ctx, final RemotingCommand cmd) {
         // processorTable以code为key，Pair<NettyRequestProcessor, ExecutorService>为value保存能够处理RemotingCommand的
-        // 处理器，即NettyRequestProcessor，NettyRequestProcessor用于处理收到的请求，ExecutorService是处理收到的请求的线程池。
+        // 处理器，即NettyRequestProcessor，NettyRequestProcessor用于处理收到的请求，ExecutorService是执行处理过程的线程池。
         // processorTable由子类负责添加数据，这里根据RemotingCommand的code获取对应的NettyRequestProcessor
         final Pair<NettyRequestProcessor, ExecutorService> matched = this.processorTable.get(cmd.getCode());
         // 如果未找到NettyRequestProcessor则使用默认的NettyRequestProcessor
@@ -231,6 +231,7 @@ public abstract class NettyRemotingAbstract {
                                 // 设置response的flag属性，将其标记为response类型
                                 response.markResponseType();
                                 try {
+                                    // 处理请求结束后发送响应
                                     ctx.writeAndFlush(response);
                                 } catch (Throwable e) {
                                     log.error("process request over, but response failed", e);
@@ -267,7 +268,7 @@ public abstract class NettyRemotingAbstract {
             }
 
             try {
-                // RequestTask对象封装了请求处理的线程任务、Channel和RemotingCommand对象。这里用RequestTask对象再封装一次请求处理
+                // RequestTask对象封装了处理请求的线程任务、Channel和RemotingCommand对象。这里用RequestTask对象再封装一次请求处理
                 // 的线程任务是因为RequestTask支持stop，RequestTask的run方法在执行真正的线程任务前会判断自己是否被标记为stop了，线程
                 // 池的逻辑是在线程数到达其coreSize后将任务放到BlockingQueue中，直到BlockingQueue满了才继续创建线程直到线程数到达
                 // maximumPoolSize，所以BlockingQueue中保存了已被提交但是未被运行的任务。这里提交的是RequestTask对象，所以线程池的
@@ -345,8 +346,8 @@ public abstract class NettyRemotingAbstract {
      */
     private void executeInvokeCallback(final ResponseFuture responseFuture) {
         boolean runInThisThread = false;
+        // 由子类实现，返回专门用于执行executeInvokeCallback的线程池
         ExecutorService executor = this.getCallbackExecutor();
-        // callbackExecutor是专门用于执行executeInvokeCallback的线程池
         if (executor != null) {
             try {
                 executor.submit(new Runnable() {
@@ -420,17 +421,21 @@ public abstract class NettyRemotingAbstract {
      */
     public void scanResponseTable() {
         final List<ResponseFuture> rfList = new LinkedList<ResponseFuture>();
-        // responseTable保存了所有异步调用的还没有完成的Future，这里检查这些Future是否超时（在timeout基础上再加上1秒作为超时时间）
-        // 所有超时的Future都保存到rfList在最后分别调用executeInvokeCallback方法，该方法会执行ResponseFuture的invokeCallback
-        // 通知调用方异步操作完成了。ResponseFuture的实现保证了对于一个ResponseFuture多次调用executeInvokeCallback是幂等的。针对
-        // scanResponseTable的这种超时机制，ResponseFuture的invokeCallback的实现，也就是调用方传入的invokeCallback中需要判断异
-        // 步操作完成时是否超时
+        // responseTable保存了请求对应的ResponseFuture对象（除了oneway类型的请求），这里检查这些ResponseFuture是否超时（在timeout
+        // 基础上再加上1秒作为超时时间）。所有超时的ResponseFuture都保存到rfList在最后分别调用executeInvokeCallback方法，该方法会执
+        // 行ResponseFuture的invokeCallback方法通知调用方操作完成了。ResponseFuture的实现保证了对于一个ResponseFuture多次调用
+        // executeInvokeCallback是幂等的。针对scanResponseTable的这种超时机制，ResponseFuture的invokeCallback的实现，也就是调用
+        // 方传入的invokeCallback中需要判断异步操作完成时是否超时
         Iterator<Entry<Integer, ResponseFuture>> it = this.responseTable.entrySet().iterator();
         while (it.hasNext()) {
             Entry<Integer, ResponseFuture> next = it.next();
             ResponseFuture rep = next.getValue();
 
-            /// todo: 为啥这里需要加1秒？
+            // beginTimestamp默认等于ResponseFuture对象的创建时间。当前遍历的Iterator中即包含同步请求的ResponseFuture对象，也包含
+            // 异步请求的ResponseFuture对象。但是同步请求理论上是不会满足下面的条件的，因为同步请求通过ResponseFuture对象的
+            // waitResponse方法，最多等待timeoutMillis的时间就返回了，这里在timeout的基础上加了1秒，所以通过请求肯定已经收到响应或
+            // 超时了。
+            /// todo: 上面是一种这里需要加1秒的解释，还有没有其他原因？如果只是上面的原因，1秒也太久了吧。
             if ((rep.getBeginTimestamp() + rep.getTimeoutMillis() + 1000) <= System.currentTimeMillis()) {
                 // 每个ResponseFuture都有一个只能调用一次release方法的Semaphore，该Semaphore在创建ResponseFuture时传入，可以用于
                 // 控制ResponseFuture的数量。这里将超时的ResponseFuture释放以许可一个新的ResponseFuture
@@ -609,6 +614,7 @@ public abstract class NettyRemotingAbstract {
         Iterator<Entry<Integer, ResponseFuture>> it = responseTable.entrySet().iterator();
         while (it.hasNext()) {
             Entry<Integer, ResponseFuture> entry = it.next();
+            // 这就是为什么ResponseFuture类有processChannel属性，通过该属性，能够用一个channel定位到其请求对应的ResponseFuture
             if (entry.getValue().getProcessChannel() == channel) {
                 Integer opaque = entry.getKey();
                 if (opaque != null) {
@@ -620,7 +626,7 @@ public abstract class NettyRemotingAbstract {
 
     // 只发送请求，不关心响应，所以没有同步等待，也没有invokeCallback，看下面的处理过程可以发现，调用方使用invokeOnewayImpl
     // 方法是不能确定请求是否发送成功或是否收到响应的
-    public void invokeOnewayImpl(final Channel channel, final RemotingCommand request, final long timeoutMillis)
+    public void invokeOnewayImpl(final Channel channel, final RemotingCommand request, final long s)
         throws InterruptedException, RemotingTooMuchRequestException, RemotingTimeoutException, RemotingSendRequestException {
         // 设置request的flag属性标记该请求是onewayRPC
         request.markOnewayRPC();
