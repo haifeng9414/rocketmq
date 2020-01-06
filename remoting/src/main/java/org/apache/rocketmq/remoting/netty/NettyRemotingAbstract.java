@@ -626,7 +626,7 @@ public abstract class NettyRemotingAbstract {
 
     // 只发送请求，不关心响应，所以没有同步等待，也没有invokeCallback，看下面的处理过程可以发现，调用方使用invokeOnewayImpl
     // 方法是不能确定请求是否发送成功或是否收到响应的
-    public void invokeOnewayImpl(final Channel channel, final RemotingCommand request, final long s)
+    public void invokeOnewayImpl(final Channel channel, final RemotingCommand request, final long timeoutMillis)
         throws InterruptedException, RemotingTooMuchRequestException, RemotingTimeoutException, RemotingSendRequestException {
         // 设置request的flag属性标记该请求是onewayRPC
         request.markOnewayRPC();

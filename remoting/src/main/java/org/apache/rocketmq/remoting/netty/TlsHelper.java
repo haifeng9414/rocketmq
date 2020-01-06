@@ -89,11 +89,15 @@ public class TlsHelper {
     }
 
     public static SslContext buildSslContext(boolean forClient) throws IOException, CertificateException {
+        // 获取tls配置文件
         File configFile = new File(TlsSystemConfig.tlsConfigFile);
+        // 从该文件解析属性并设置到TlsSystemConfig类的tls相关的静态变量中
         extractTlsConfigFromFile(configFile);
+        // 打印TlsSystemConfig类的tls相关的静态变量到日志
         logTheFinalUsedTlsConfig();
 
         SslProvider provider;
+        // 如果只是openSSL则使用，否则使用JDK的ssl
         if (OpenSsl.isAvailable()) {
             provider = SslProvider.OPENSSL;
             LOGGER.info("Using OpenSSL provider");
@@ -102,6 +106,7 @@ public class TlsHelper {
             LOGGER.info("Using JDK SSL provider");
         }
 
+        // netty提供了ssl的支持，下面就是使用netty的ssl时需要做的配置
         if (forClient) {
             if (tlsTestModeEnable) {
                 return SslContextBuilder
@@ -114,13 +119,16 @@ public class TlsHelper {
 
 
                 if (!tlsClientAuthServer) {
+                    // 如果客户端不验证服务其的证书，则使用InsecureTrustManagerFactory.INSTANCE忽略所有证书验证
                     sslContextBuilder.trustManager(InsecureTrustManagerFactory.INSTANCE);
                 } else {
+                    // 否则使用指定的X.509证书文件进行验证
                     if (!isNullOrEmpty(tlsClientTrustCertPath)) {
                         sslContextBuilder.trustManager(new File(tlsClientTrustCertPath));
                     }
                 }
 
+                // 返回sslContext
                 return sslContextBuilder.keyManager(
                     !isNullOrEmpty(tlsClientCertPath) ? new FileInputStream(tlsClientCertPath) : null,
                     !isNullOrEmpty(tlsClientKeyPath) ? decryptionStrategy.decryptPrivateKey(tlsClientKeyPath, true) : null,
@@ -128,7 +136,7 @@ public class TlsHelper {
                     .build();
             }
         } else {
-
+            // 服务器的配置过程类似
             if (tlsTestModeEnable) {
                 SelfSignedCertificate selfSignedCertificate = new SelfSignedCertificate();
                 return SslContextBuilder
