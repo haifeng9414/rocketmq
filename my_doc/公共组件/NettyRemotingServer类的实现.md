@@ -1,0 +1,2 @@
+`NettyRemotingServer`的父类`NettyRemotingAbstract`及实现的接口`RemotingServer`分别在[NettyRemotingAbstract的实现](NettyRemotingAbstract类的实现.md)和[RemotingServer接口](RemotingServer接口.md)做了分析，下面`NettyRemotingServer`类的分析假定已经对这两个笔记有了全面的了解。
+

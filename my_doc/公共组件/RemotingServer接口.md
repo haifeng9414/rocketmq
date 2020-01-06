@@ -1,30 +1,19 @@
-/*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-package org.apache.rocketmq.remoting;
+`RemotingServer`接口定义了作为一个服务器时需要实现的方法，其继承自`RemotingService`接口，`RemotingService`接口定义了作为一个远程服务需要实现的方法：
+```java
+public interface RemotingService {
+    // 开启服务器
+    void start();
 
-import io.netty.channel.Channel;
-import java.util.concurrent.ExecutorService;
-import org.apache.rocketmq.remoting.common.Pair;
-import org.apache.rocketmq.remoting.exception.RemotingSendRequestException;
-import org.apache.rocketmq.remoting.exception.RemotingTimeoutException;
-import org.apache.rocketmq.remoting.exception.RemotingTooMuchRequestException;
-import org.apache.rocketmq.remoting.netty.NettyRequestProcessor;
-import org.apache.rocketmq.remoting.protocol.RemotingCommand;
+    // 关闭服务器
+    void shutdown();
 
+    // RPCHook用于发送请求前后和处理请求前后执行回调
+    void registerRPCHook(RPCHook rpcHook);
+}
+```
+
+`RemotingServer`接口在`RemotingService`接口基础上，添加了作为服务器需要实现的方法：
+```java
 public interface RemotingServer extends RemotingService {
     // 注册一个能够处理requestCode对应的请求类型的处理器，处理请求时在executor线程池中执行。RocketMQ中发送的请求都带有请求的code，
     // 也就是这里的requestCode，表示了请求的类型，如pull消息请求的code为11，所有的requestCode都定义在了RequestCode类，如
@@ -59,3 +48,33 @@ public interface RemotingServer extends RemotingService {
         RemotingSendRequestException;
 
 }
+```
+
+上面`getProcessorPair()`方法的返回值`Pair`类的定义很简单，表示一对对象：
+```java
+public class Pair<T1, T2> {
+    private T1 object1;
+    private T2 object2;
+
+    public Pair(T1 object1, T2 object2) {
+        this.object1 = object1;
+        this.object2 = object2;
+    }
+
+    public T1 getObject1() {
+        return object1;
+    }
+
+    public void setObject1(T1 object1) {
+        this.object1 = object1;
+    }
+
+    public T2 getObject2() {
+        return object2;
+    }
+
+    public void setObject2(T2 object2) {
+        this.object2 = object2;
+    }
+}
+```

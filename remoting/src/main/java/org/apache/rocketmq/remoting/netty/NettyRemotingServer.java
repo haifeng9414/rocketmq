@@ -58,23 +58,29 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class NettyRemotingServer extends NettyRemotingAbstract implements RemotingServer {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(RemotingHelper.ROCKETMQ_REMOTING);
+    // 处理ssl的握手过程的handler名
     private static final String HANDSHAKE_HANDLER_NAME = "handshakeHandler";
+    // 处理ssl的handler名
     private static final String TLS_HANDLER_NAME = "sslHandler";
+    // 用于传输FileRegion对象的handler，FileRegion类实现了传输某个文件的局部数据的功能
     private static final String FILE_REGION_ENCODER_NAME = "fileRegionEncoder";
     // netty组件
     private final ServerBootstrap serverBootstrap;
-    // netty组件
+    // netty组件，处理childChannel
     private final EventLoopGroup eventLoopGroupSelector;
-    // netty组件
+    // netty组件，处理serverChannel
     private final EventLoopGroup eventLoopGroupBoss;
-    private final NettyServerConfig nettyServerConfig;
     private final ExecutorService publicExecutor;
+    // 当注册NettyRequestProcessor时没有指定ExecutorService的话用publicExecutor作为ExecutorService
+    private final NettyServerConfig nettyServerConfig;
+    // channel连接、关闭、异常和空闲的监听器
     private final ChannelEventListener channelEventListener;
+    // 定时调用父类的scanResponseTable方法，scanResponseTable方法的作用看方法注释
     private final Timer timer = new Timer("ServerHouseKeepingService", true);
     private DefaultEventExecutorGroup defaultEventExecutorGroup;
     private int port = 0;
     // sharable handlers
-    // ssl相关的SimpleChannelInboundHandler，略
+    // ssl相关的SimpleChannelInboundHandler
     private HandshakeHandler handshakeHandler;
     // ChannelOutboundHandlerAdapter的实现类，将出站的RemotingCommand对象编码为二进制
     private NettyEncoder encoder;
@@ -97,6 +103,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
         this.nettyServerConfig = nettyServerConfig;
         this.channelEventListener = channelEventListener;
 
+        // publicExecutor线程池的coreSize
         int publicThreadNums = nettyServerConfig.getServerCallbackExecutorThreads();
         if (publicThreadNums <= 0) {
             publicThreadNums = 4;
@@ -115,6 +122,32 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
         /*
         是否使用epoll的判断逻辑
         RemotingUtil.isLinuxPlatform() && nettyServerConfig.isUseEpollNativeSelector() && Epoll.isAvailable();
+
+        实现nio需要操作系统的支持，linux中一般有3中实现方式：select、poll、epoll
+
+        select、poll和epoll都能完成1个线程处理所有连接的“等待消息准备好”事件，但是select的实现存在缺陷：
+        每次调用select方法，都需要把fd集合从用户态拷贝到内核态，这个开销在fd很多时会很大
+        每次调用select方法，都需要在内核遍历传递进来的所有fd寻找准备好的fd，这个开销在fd很多时也很大
+        linux中select的实现方式限制了fd个数，最多1024个
+
+        poll的实现和select区别不大，只是取消了1024的限制
+
+        epoll既然是对select和poll的改进，就应该能避免上述的三个缺点。那epoll都是怎么解决的呢？select和poll都只提供了一个函数：select
+        或者poll函数。而epoll提供了三个函数，epoll_create、epoll_ctl和epoll_wait，epoll_create是创建一个epoll句柄；epoll_ctl是
+        注册要监听的事件类型；epoll_wait则是等待事件的产生
+        对于第一个缺点，epoll的解决方案在epoll_ctl函数中。每次注册新的事件到epoll句柄中时（如在epoll_ctl中指定EPOLL_CTL_ADD），会把
+        fd拷贝进内核，而不是在epoll_wait的时候重复拷贝。epoll保证了每个fd在整个过程中只会拷贝一次
+        对于第二个缺点，epoll的解决方案是为每个fd指定一个回调函数，当设备就绪，唤醒等待队列上的等待者时，就会调用这个回调函数，而这个回调
+        函数会把就绪的fd加入一个就绪链表。epoll_wait的工作实际上就是在这个就绪链表中查看有没有就绪的fd（利用schedule_timeout()实现睡
+        一会，判断一会的效果）
+        对于第三个缺点，epoll没有这个限制，它所支持的FD上限是最大可以打开文件的数目
+
+        总结：
+        select，poll实现需要不断轮询所有fd集合，直到设备就绪，期间可能要睡眠和唤醒多次交替。而epoll其实也需要调用epoll_wait不断轮询就
+        绪链表，期间也可能多次睡眠和唤醒交替，但是它是设备就绪时，调用回调函数，把就绪fd放入就绪链表中，并唤醒在epoll_wait中进入睡眠的进
+        程。虽然都要睡眠和交替，但是select和poll在“醒着”的时候要遍历整个fd集合，而epoll在“醒着”的时候只要判断一下就绪链表是否为空就行了，
+        这节省了大量的CPU时间。这就是回调机制带来的性能提升。
+        select，poll每次调用都要把fd集合从用户态往内核态拷贝一次，而epoll只要一次拷贝，这也能节省不少的开销。
          */
         if (useEpoll()) {
             // 使用Epoll的EventLoopGroup
@@ -160,7 +193,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
             });
         }
 
-        // ssl相关略
+        // ssl相关
         loadSslContext();
     }
 
@@ -170,6 +203,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
 
         if (tlsMode != TlsMode.DISABLED) {
             try {
+                // netty已经提供了ssl的支持，这里创建netty的SslContext对象，参数表示SslContext应该按照ssl中的服务器进行配置
                 sslContext = TlsHelper.buildSslContext(false);
                 log.info("SSLContext created for server");
             } catch (CertificateException e) {
@@ -188,7 +222,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
 
     @Override
     public void start() {
-        // serverWorkerThreads默认为8
+        // 处理childChannel的EventExecutorGroup，serverWorkerThreads默认为8
         this.defaultEventExecutorGroup = new DefaultEventExecutorGroup(
                 nettyServerConfig.getServerWorkerThreads(),
                 new ThreadFactory() {
@@ -233,7 +267,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
                             @Override
                             public void initChannel(SocketChannel ch) throws Exception {
                                 ch.pipeline()
-                                        // 添加ssl相关的ChannelHandler
+                                        // 添加处理握手的handler
                                         .addLast(defaultEventExecutorGroup, HANDSHAKE_HANDLER_NAME, handshakeHandler)
                                         // 添加若干ChannelHandler，这些ChannelHandler完成了主要的数据处理逻辑
                                         .addLast(defaultEventExecutorGroup,
