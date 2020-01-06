@@ -70,9 +70,9 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
     private final EventLoopGroup eventLoopGroupSelector;
     // netty组件，处理serverChannel
     private final EventLoopGroup eventLoopGroupBoss;
-    private final ExecutorService publicExecutor;
-    // 当注册NettyRequestProcessor时没有指定ExecutorService的话用publicExecutor作为ExecutorService
     private final NettyServerConfig nettyServerConfig;
+    // 当注册NettyRequestProcessor时没有指定ExecutorService的话用publicExecutor作为ExecutorService
+    private final ExecutorService publicExecutor;
     // channel连接、关闭、异常和空闲的监听器
     private final ChannelEventListener channelEventListener;
     // 定时调用父类的scanResponseTable方法，scanResponseTable方法的作用看方法注释
