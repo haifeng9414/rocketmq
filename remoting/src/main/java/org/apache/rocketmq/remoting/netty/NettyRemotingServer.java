@@ -277,7 +277,10 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
                                                 // 将入站的二进制解码为RemotingCommand对象，NettyDecoder是非共享的，所以在这里
                                                 // 直接new一个
                                                 new NettyDecoder(),
-                                                // 利用EventLoop的schedule方法创建定时任务监听channelHandler对应的channel是否空闲
+                                                // IdleStateHandler为netty提供的handler，实现原理是继承ChannelDuplexHandler
+                                                // 类监听channel的读和写操作事件，每次事件发生时更新reading标识为或最后一次写操作
+                                                // 时间，在channel连接完成时利用EventLoop的schedule方法创建定时任务监听channel
+                                                // 是否空闲，定时任务以reading标识为或最后一次写操作时间为超时依据
                                                 new IdleStateHandler(0, 0, nettyServerConfig.getServerChannelMaxIdleTimeSeconds()),
                                                 connectionManageHandler,
                                                 serverHandler
