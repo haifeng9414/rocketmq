@@ -159,4 +159,4 @@ public boolean initialize() {
 }
 ```
 
-`NamesrvController`的`initialize()`方法创建了一些组件并开启了若干定时任务，各个组件和定时任务的作用在注释中说明了，具体的实现可以看具体的相关方法及方法中添加的注释。对于上面的初始化过程，可以发现`NamesrvController`中最关键的组件是`NettyRemotingServer`，该类封装了网络请求相关的处理过程，Namesrv收到的网络请求会由`NettyRemotingServer`接收并解析交给`registerProcessor()`方法中注册的`DefaultRequestProcessor`类处理，下面分析`NettyRemotingServer`的实现。
+`NamesrvController`的`initialize()`方法创建了一些组件并开启了若干定时任务，各个组件和定时任务的作用在注释中说明了，具体的实现可以看具体的相关方法及方法中添加的注释。对于上面的初始化过程，可以发现`NamesrvController`中最关键的组件是`NettyRemotingServer`，该类封装了网络请求相关的处理过程，Namesrv收到的网络请求会由`NettyRemotingServer`接收并解析交给`registerProcessor()`方法中注册的`DefaultRequestProcessor`类处理。该类的实现在笔记[NettyRemotingServer类的实现](../my_doc/公共组件/NettyRemotingServer类的实现.md)中分析了。
