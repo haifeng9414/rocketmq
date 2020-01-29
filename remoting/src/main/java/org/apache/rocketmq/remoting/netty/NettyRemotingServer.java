@@ -454,6 +454,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
                         if (null != sslContext) {
                             ctx.pipeline()
                                     .addAfter(defaultEventExecutorGroup, HANDSHAKE_HANDLER_NAME, TLS_HANDLER_NAME, sslContext.newHandler(ctx.channel().alloc()))
+                                    // 当开启ssl时禁用零拷贝，否则sslHandler无法处理数据
                                     .addAfter(defaultEventExecutorGroup, TLS_HANDLER_NAME, FILE_REGION_ENCODER_NAME, new FileRegionEncoder());
                             log.info("Handlers prepended to channel pipeline to establish SSL connection");
                         } else {

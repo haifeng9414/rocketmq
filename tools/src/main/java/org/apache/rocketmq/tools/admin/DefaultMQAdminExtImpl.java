@@ -93,7 +93,10 @@ public class DefaultMQAdminExtImpl implements MQAdminExt, MQAdminExtInner {
 
     private final InternalLogger log = ClientLogger.getLog();
     private final DefaultMQAdminExt defaultMQAdminExt;
+    // 标记当前DefaultMQAdminExtImpl对象的状态，初始状态为刚创建
     private ServiceState serviceState = ServiceState.CREATE_JUST;
+    // MQClientInstance类是个工具类，提供了众多rocketmq各个组件可能需要的功能，如根据topic获取broker地址、选择client、producer、
+    // 在指定broker创建topic等方法。DefaultMQAdminExtImpl类的大部分功能都由MQClientInstance实现
     private MQClientInstance mqClientInstance;
     private RPCHook rpcHook;
     private long timeoutMillis = 20000;
@@ -113,14 +116,20 @@ public class DefaultMQAdminExtImpl implements MQAdminExt, MQAdminExtInner {
     public void start() throws MQClientException {
         switch (this.serviceState) {
             case CREATE_JUST:
+                // 更新状态为启动失败
                 this.serviceState = ServiceState.START_FAILED;
 
+                // 如果没有设置rocketmq.client.name属性的值，则使用pid作为instanceName
                 this.defaultMQAdminExt.changeInstanceNameToPID();
 
+                // 创建MQClientInstance对象
                 this.mqClientInstance = MQClientManager.getInstance().getOrCreateMQClientInstance(this.defaultMQAdminExt, rpcHook);
 
+                // this.defaultMQAdminExt.getAdminExtGroup()默认返回admin_ext_group字符串，这里将当前DefaultMQAdminExtImpl
+                // 对象作为MQAdminExtInner注册到mqClientInstance实例，如果group对应的MQAdminExtInner已存在则返回false
                 boolean registerOK = mqClientInstance.registerAdminExt(this.defaultMQAdminExt.getAdminExtGroup(), this);
                 if (!registerOK) {
+                    // 注册失败时抛出异常
                     this.serviceState = ServiceState.CREATE_JUST;
                     throw new MQClientException("The adminExt group[" + this.defaultMQAdminExt.getAdminExtGroup()
                         + "] has created already, specifed another name please."
@@ -131,9 +140,10 @@ public class DefaultMQAdminExtImpl implements MQAdminExt, MQAdminExtInner {
 
                 log.info("the adminExt [{}] start OK", this.defaultMQAdminExt.getAdminExtGroup());
 
+                // 更新状态为running·
                 this.serviceState = ServiceState.RUNNING;
                 break;
-            case RUNNING:
+            case RUNNING: // 其他状态调用start方法都抛出异常
             case START_FAILED:
             case SHUTDOWN_ALREADY:
                 throw new MQClientException("The AdminExt service state not OK, maybe started once, "

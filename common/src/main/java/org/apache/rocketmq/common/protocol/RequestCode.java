@@ -18,7 +18,7 @@
 package org.apache.rocketmq.common.protocol;
 
 public class RequestCode {
-
+    // producer发送消息的请求
     public static final int SEND_MESSAGE = 10;
 
     public static final int PULL_MESSAGE = 11;

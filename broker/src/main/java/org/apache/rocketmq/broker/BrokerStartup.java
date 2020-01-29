@@ -88,11 +88,12 @@ public class BrokerStartup {
     }
 
     public static BrokerController createBrokerController(String[] args) {
+        // 设置RokectMQ版本
         System.setProperty(RemotingCommand.REMOTING_VERSION_KEY, Integer.toString(MQVersion.CURRENT_VERSION));
 
         // 设置netty发送窗口大小
         if (null == System.getProperty(NettySystemConfig.COM_ROCKETMQ_REMOTING_SOCKET_SNDBUF_SIZE)) {
-            NettySystemConfig.socketSndbufSize = 131072;
+            NettySystemConfig.socketSndbufSize = 131072; // 65536 *2，有什么特殊含义吗
         }
 
         // 设置netty接收窗口大小

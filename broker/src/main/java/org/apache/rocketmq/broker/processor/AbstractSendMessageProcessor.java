@@ -60,6 +60,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
     protected final BrokerController brokerController;
     protected final Random random = new Random(System.currentTimeMillis());
     protected final SocketAddress storeHost;
+    // 调用sendMessage或sendBatchMessage方法处理发送消息的请求时的hook
     private List<SendMessageHook> sendMessageHookList;
 
     public AbstractSendMessageProcessor(final BrokerController brokerController) {
@@ -69,23 +70,34 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
                 .getNettyServerConfig().getListenPort());
     }
 
+    // 返回值SendMessageContext保存了requestHeader的大部分属性
     protected SendMessageContext buildMsgContext(ChannelHandlerContext ctx,
         SendMessageRequestHeader requestHeader) {
+        // 如果不存在SendMessageHook则不需要创建SendMessageContext，因为这里创建的SendMessageContext对象就是SendMessageHook
+        // 对象执行方法时的参数
         if (!this.hasSendMessageHook()) {
             return null;
         }
+        // 获取请求的topic
         String namespace = NamespaceUtil.getNamespaceFromResource(requestHeader.getTopic());
         SendMessageContext mqtraceContext;
         mqtraceContext = new SendMessageContext();
+        // 设置请求的product group
         mqtraceContext.setProducerGroup(requestHeader.getProducerGroup());
         mqtraceContext.setNamespace(namespace);
         mqtraceContext.setTopic(requestHeader.getTopic());
+        // 设置请求的属性
         mqtraceContext.setMsgProps(requestHeader.getProperties());
+        // 设置channel目标服务器地址
         mqtraceContext.setBornHost(RemotingHelper.parseChannelRemoteAddr(ctx.channel()));
+        // 设置broker的地址
         mqtraceContext.setBrokerAddr(this.brokerController.getBrokerAddr());
+        // 设置borker所在的regionId
         mqtraceContext.setBrokerRegionId(this.brokerController.getBrokerConfig().getRegionId());
+        // 设置requestHeader对象被创建的时间
         mqtraceContext.setBornTimeStamp(requestHeader.getBornTimestamp());
 
+        // 添加两个属性到requestHeader.getProperties()
         Map<String, String> properties = MessageDecoder.string2messageProperties(requestHeader.getProperties());
         String uniqueKey = properties.get(MessageConst.PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX);
         properties.put(MessageConst.PROPERTY_MSG_REGION, this.brokerController.getBrokerConfig().getRegionId());
@@ -95,6 +107,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
         if (uniqueKey == null) {
             uniqueKey = "";
         }
+        // 设置requestHeader的properties中的UNIQ_KEY的值
         mqtraceContext.setMsgUniqueKey(uniqueKey);
         return mqtraceContext;
     }
@@ -164,13 +177,17 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
 
     protected RemotingCommand msgCheck(final ChannelHandlerContext ctx,
         final SendMessageRequestHeader requestHeader, final RemotingCommand response) {
+        // 检查broker的permission，是否支持写入
         if (!PermName.isWriteable(this.brokerController.getBrokerConfig().getBrokerPermission())
+                /// todo: 这个isOrderTopic啥意思？
             && this.brokerController.getTopicConfigManager().isOrderTopic(requestHeader.getTopic())) {
+            // 返回没有权限的error
             response.setCode(ResponseCode.NO_PERMISSION);
             response.setRemark("the broker[" + this.brokerController.getBrokerConfig().getBrokerIP1()
                 + "] sending message is forbidden");
             return response;
         }
+        // 如果topic的名字和系统保留的topic：TBW102名字相等则返回error
         if (!this.brokerController.getTopicConfigManager().isTopicCanSendMessage(requestHeader.getTopic())) {
             String errorMsg = "the topic[" + requestHeader.getTopic() + "] is conflict with system reserved words.";
             log.warn(errorMsg);
@@ -179,6 +196,28 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
             return response;
         }
 
+        /*
+        正常情况下topic应该在broker下先手动创建好，producer和consumer才能使用该topic，否则producer或consumer无法从namesrv获取
+        topic及broker的关联关系。但是RocketMQ也有一种自动创建topic的机制，该机制的工作方式是，如果broke的autoCreateTopicEnable配置
+        为true，则broker的TopicConfigManager类的构造函数会将MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC添加到其topicConfigTable属性。
+        broker的BrokerController的start方法会在broker启动时调用registerBrokerAll方法，该方法会同步发送RequestCode.REGISTER_BROKER
+        请求，将TopicConfigManager类的topicConfigTable属性的值注册到namesrv，注册的topicConfigTable属性中就包含MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC
+        这个topic，这使得所有autoCreateTopicEnable配置为true的broker都默认注册自己存在MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC这个topic。
+
+        当producer发送消息时需要从namesrv获取topic及broker的关联关系并根据自己的需要发送的消息的topic选择一个broker下的队列，如果消息
+        的topic没有对应的broker，则producer会以MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC作为topic向namesrv发送获取topic路由数据的请求，
+        namesrv返回的路由数据实际上就是TopicRouteData对象，该对象包含了所有autoCreateTopicEnable配置为true的broker的地址。所以对于
+        producer发送的没有创建topic的消息，实际上使用的是MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC这个topic的路由信息，当某个autoCreateTopicEnable
+        配置为true的broker接收到这种消息后，这里的获取到的topicConfig就是null，此时broker会以MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC
+        这个topic的配置为源，创建topic的配置，这样下次在收到这个topic的消息时就能直接获取到配置，而broker也会通过心跳告诉namesrv自己
+        支持了之前那个不存在的topic
+
+        测试的时候可以用这个特性，但是线上最好把autoCreateTopicEnable关掉，因为rocketmq在发送消息时，先去获取topic的路由信息，如果topic
+        是第一次发送消息，由于namesrv没有topic的路由信息，所以会再次以“TBW102”这个默认topic获取路由信息，假设broker都开启了自动创建开关，
+        那么此时会获取所有broker的路由信息，消息的发送会根据负载算法选择其中一台broker发送消息，消息到达broker后，发现本地没有该topic，
+        会在创建该topic的信息塞进本地缓存中，同时会将topic路由信息注册到namesrv中，那么这样就会造成一个后果：以后所有该topic的消息，都将
+        发送到这台broker上，如果该topic消息量非常大，会造成某个broker上负载过大，这样消息的存储就达不到负载均衡的目的了。
+         */
         TopicConfig topicConfig =
             this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
         if (null == topicConfig) {
@@ -192,6 +231,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
             }
 
             log.warn("the topic {} not exist, producer: {}", requestHeader.getTopic(), ctx.channel().remoteAddress());
+            // 以MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC这个topic的配置为模版为当前topic创建配置
             topicConfig = this.brokerController.getTopicConfigManager().createTopicInSendMessageMethod(
                 requestHeader.getTopic(),
                 requestHeader.getDefaultTopic(),
@@ -279,11 +319,13 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
         }
     }
 
+    // 反射创建指定类型的对象并根据request的extFields属性中的值为对象赋值
     protected SendMessageRequestHeader parseRequestHeader(RemotingCommand request)
         throws RemotingCommandException {
 
         SendMessageRequestHeaderV2 requestHeaderV2 = null;
         SendMessageRequestHeader requestHeader = null;
+        // 如果没有break，则某个case满足后其后的所有case都会被执行
         switch (request.getCode()) {
             case RequestCode.SEND_BATCH_MESSAGE:
             case RequestCode.SEND_MESSAGE_V2:
@@ -291,6 +333,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
                     (SendMessageRequestHeaderV2) request
                         .decodeCommandCustomHeader(SendMessageRequestHeaderV2.class);
             case RequestCode.SEND_MESSAGE:
+                // 如果code是SEND_MESSAGE_V2则requestHeaderV2 != null
                 if (null == requestHeaderV2) {
                     requestHeader =
                         (SendMessageRequestHeader) request

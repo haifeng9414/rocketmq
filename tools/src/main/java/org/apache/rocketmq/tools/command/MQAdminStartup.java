@@ -91,19 +91,24 @@ public class MQAdminStartup {
     }
 
     public static void main0(String[] args, RPCHook rpcHook) {
+        // 保存rocketmq的版本到环境变量
         System.setProperty(RemotingCommand.REMOTING_VERSION_KEY, Integer.toString(MQVersion.CURRENT_VERSION));
 
         //PackageConflictDetect.detectFastjson();
 
+        // 初始化mqadmin的命令行选项
         initCommand();
 
         try {
+            // 初始化日志配置
             initLogback();
             switch (args.length) {
                 case 0:
+                    // 如果mqadmin命令后没有子选项，则打印所有子选项的信息
                     printHelp();
                     break;
                 case 2:
+                    // 如果mqadmin命令后子选项数量为2，并且第一个是help，则打印指定子选项的帮助信息
                     if (args[0].equals("help")) {
                         SubCommand cmd = findSubCommand(args[1]);
                         if (cmd != null) {
@@ -119,6 +124,7 @@ public class MQAdminStartup {
                     }
                 case 1:
                 default:
+                    // 如果只有一个子选项或超过两个子选项，则打印子选项帮助信息或执行根据选项执行命令
                     SubCommand cmd = findSubCommand(args[0]);
                     if (cmd != null) {
                         String[] subargs = parseSubArgs(args);
@@ -133,9 +139,11 @@ public class MQAdminStartup {
 
                         if (commandLine.hasOption('n')) {
                             String namesrvAddr = commandLine.getOptionValue('n');
+                            // 保存namesrv地址
                             System.setProperty(MixAll.NAMESRV_ADDR_PROPERTY, namesrvAddr);
                         }
 
+                        // 根据选项执行命令
                         cmd.execute(commandLine, options, AclUtils.getAclRPCHook(rocketmqHome + MixAll.ACL_CONF_TOOLS_FILE));
                     } else {
                         System.out.printf("The sub command %s not exist.%n", args[0]);

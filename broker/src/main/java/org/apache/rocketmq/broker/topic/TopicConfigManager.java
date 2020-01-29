@@ -175,11 +175,16 @@ public class TopicConfigManager extends ConfigManager {
                     TopicConfig defaultTopicConfig = this.topicConfigTable.get(defaultTopic);
                     if (defaultTopicConfig != null) {
                         if (defaultTopic.equals(MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC)) {
+                            // autoCreateTopicEnable为true时defaultTopicConfig的perm为PermName.PERM_READ | PermName.PERM_WRITE | PermName.PERM_INHERIT
+                            // 当这里发现autoCreateTopicEnable为false时，重新设置defaultTopic的perm，删掉了PermName.PERM_INHERIT
+                            // 使得defaultTopic不能用于创建新的topic的配置时作为模版
                             if (!this.brokerController.getBrokerConfig().isAutoCreateTopicEnable()) {
                                 defaultTopicConfig.setPerm(PermName.PERM_READ | PermName.PERM_WRITE);
                             }
                         }
 
+                        // 检查perm的PermName.PERM_WRITE位是否为1，当autoCreateTopicEnable为false时上面的语句会删掉
+                        // PermName.PERM_WRITE，此时会导致创建topic配置失败
                         if (PermName.isInherited(defaultTopicConfig.getPerm())) {
                             topicConfig = new TopicConfig(topic);
 
@@ -213,6 +218,7 @@ public class TopicConfigManager extends ConfigManager {
 
                         this.topicConfigTable.put(topic, topicConfig);
 
+                        // 每次topicConfigTable发生变化时更新dataVersion
                         this.dataVersion.nextVersion();
 
                         createNew = true;
@@ -228,6 +234,7 @@ public class TopicConfigManager extends ConfigManager {
         }
 
         if (createNew) {
+            // 如果创建成功，将配置注册到namesrv
             this.brokerController.registerBrokerAll(false, true, true);
         }
 

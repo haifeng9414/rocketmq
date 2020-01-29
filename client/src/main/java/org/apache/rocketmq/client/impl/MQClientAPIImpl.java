@@ -214,6 +214,7 @@ public class MQClientAPIImpl {
 
     public String fetchNameServerAddr() {
         try {
+            // 默认从jmenv.tbsite.net:8080/rocketmq/nsaddr获取namesrv地址列表，多个地址以;分隔
             String addrs = this.topAddressing.fetchNSAddr();
             if (addrs != null) {
                 if (!addrs.equals(this.nameSrvAddr)) {
@@ -236,6 +237,7 @@ public class MQClientAPIImpl {
     }
 
     public void start() {
+        // remotingClient的默认实现是NettyRemotingClient，这里的start就是创建netty的Bootstrap
         this.remotingClient.start();
     }
 

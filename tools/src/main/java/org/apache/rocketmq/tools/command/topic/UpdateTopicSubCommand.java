@@ -89,30 +89,39 @@ public class UpdateTopicSubCommand implements SubCommand {
     @Override
     public void execute(final CommandLine commandLine, final Options options,
         RPCHook rpcHook) throws SubCommandException {
+        // DefaultMQAdminExt类是MQAdminExt接口的实现类，MQAdminExt接口定义了所有mqadmin命令能够执行的所有方法
         DefaultMQAdminExt defaultMQAdminExt = new DefaultMQAdminExt(rpcHook);
+        // 保存执行时间
         defaultMQAdminExt.setInstanceName(Long.toString(System.currentTimeMillis()));
 
         try {
+            // 创建topic的配置
             TopicConfig topicConfig = new TopicConfig();
+            // 默认读写队列数量都为8
             topicConfig.setReadQueueNums(8);
             topicConfig.setWriteQueueNums(8);
+            // 从命令行获取topic名称
             topicConfig.setTopicName(commandLine.getOptionValue('t').trim());
 
             // readQueueNums
             if (commandLine.hasOption('r')) {
+                // 从命令行获取读队列名称
                 topicConfig.setReadQueueNums(Integer.parseInt(commandLine.getOptionValue('r').trim()));
             }
 
             // writeQueueNums
             if (commandLine.hasOption('w')) {
+                // 从命令行获取写队列名称
                 topicConfig.setWriteQueueNums(Integer.parseInt(commandLine.getOptionValue('w').trim()));
             }
 
             // perm
             if (commandLine.hasOption('p')) {
+                // 从命令行获取队列权限
                 topicConfig.setPerm(Integer.parseInt(commandLine.getOptionValue('p').trim()));
             }
 
+            // 从命令行获取其他topic其他配置
             boolean isUnit = false;
             if (commandLine.hasOption('u')) {
                 isUnit = Boolean.parseBoolean(commandLine.getOptionValue('u').trim());
@@ -133,12 +142,15 @@ public class UpdateTopicSubCommand implements SubCommand {
             topicConfig.setOrder(isOrder);
 
             if (commandLine.hasOption('b')) {
+                // 获取broker地址
                 String addr = commandLine.getOptionValue('b').trim();
 
                 defaultMQAdminExt.start();
+                // 在broker中创建topic
                 defaultMQAdminExt.createAndUpdateTopicConfig(addr, topicConfig);
 
                 if (isOrder) {
+                    // 获取broker地址对应的broker name
                     String brokerName = CommandUtil.fetchBrokerNameByAddr(defaultMQAdminExt, addr);
                     String orderConf = brokerName + ":" + topicConfig.getWriteQueueNums();
                     defaultMQAdminExt.createOrUpdateOrderConf(topicConfig.getTopicName(), orderConf, false);
@@ -150,12 +162,15 @@ public class UpdateTopicSubCommand implements SubCommand {
                 return;
 
             } else if (commandLine.hasOption('c')) {
+                // 获取集群名称，以集群的方式创建topic
                 String clusterName = commandLine.getOptionValue('c').trim();
 
                 defaultMQAdminExt.start();
 
+                // 获取集群下所有的broker
                 Set<String> masterSet =
                     CommandUtil.fetchMasterAddrByClusterName(defaultMQAdminExt, clusterName);
+                // 遍历broker，依次创建topic
                 for (String addr : masterSet) {
                     defaultMQAdminExt.createAndUpdateTopicConfig(addr, topicConfig);
                     System.out.printf("create topic to %s success.%n", addr);

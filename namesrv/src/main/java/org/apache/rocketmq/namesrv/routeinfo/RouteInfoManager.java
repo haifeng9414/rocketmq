@@ -143,6 +143,9 @@ public class RouteInfoManager {
                     brokerData = new BrokerData(clusterName, brokerName, new HashMap<Long, String>());
                     this.brokerAddrTable.put(brokerName, brokerData);
                 }
+
+                // rocketmq中一个brokerName可以对应多个broker实例，包括master和slave，brokerAddrTable保存的是一个brokerName
+                // 对应的所有broker的数据，这里getBrokerAddrs方法返回的就是以brokerId为key，brokerAddr为值的map
                 Map<Long, String> brokerAddrsMap = brokerData.getBrokerAddrs();
                 //Switch slave to master: first remove <1, IP:PORT> in namesrv, then add <0, IP:PORT>
                 //The same IP:PORT must only have one record in brokerAddrTable
@@ -172,7 +175,7 @@ public class RouteInfoManager {
                             topicConfigWrapper.getTopicConfigTable();
                         if (tcTable != null) {
                             for (Map.Entry<String, TopicConfig> entry : tcTable.entrySet()) {
-                                // topicConfig带有该topic在broker中的报配置，包括写队列和读队列的数量、topic的权限配置等信息，
+                                // topicConfig带有该topic在broker中的配置，包括写队列和读队列的数量、topic的权限配置等信息，
                                 // 这里根据这些信息创建queueData，并保存或更新topic在当前broker中的queueData
                                 this.createAndUpdateQueueData(brokerName, entry.getValue());
                             }

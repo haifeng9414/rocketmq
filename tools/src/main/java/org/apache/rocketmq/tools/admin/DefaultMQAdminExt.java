@@ -59,9 +59,14 @@ import org.apache.rocketmq.remoting.exception.RemotingSendRequestException;
 import org.apache.rocketmq.remoting.exception.RemotingTimeoutException;
 import org.apache.rocketmq.tools.admin.api.MessageTrack;
 
+// MQAdminExt接口定义了所有mqadmin命令的选项对应的方法
 public class DefaultMQAdminExt extends ClientConfig implements MQAdminExt {
+    // 真正实现MQAdminExt接口的是DefaultMQAdminExtImpl类，类似装饰器模式，DefaultMQAdminExt类使用DefaultMQAdminExtImpl实现
+    // MQAdminExt接口的功能，并在MQAdminExt接口的基础上增加了ClientConfig类的功能，ClientConfig类包含了若干集群运行时的配置。和
+    // 装饰器模式不同之处在于，这里直接创建DefaultMQAdminExtImpl对象而不是通过构造函数传入MQAdminExt接口的实现类
     private final DefaultMQAdminExtImpl defaultMQAdminExtImpl;
     private String adminExtGroup = "admin_ext_group";
+    // 自动创建topic时的topic名称
     private String createTopicKey = MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC;
     private long timeoutMillis = 5000;
 
@@ -91,6 +96,7 @@ public class DefaultMQAdminExt extends ClientConfig implements MQAdminExt {
         this.defaultMQAdminExtImpl = new DefaultMQAdminExtImpl(this, timeoutMillis);
     }
 
+    // 下面的方法都是调用的DefaultMQAdminExtImpl的实现
     @Override
     public void createTopic(String key, String newTopic, int queueNum) throws MQClientException {
         createTopic(key, newTopic, queueNum, 0);

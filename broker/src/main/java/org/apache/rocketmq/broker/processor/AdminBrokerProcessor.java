@@ -250,6 +250,7 @@ public class AdminBrokerProcessor implements NettyRequestProcessor {
             (CreateTopicRequestHeader) request.decodeCommandCustomHeader(CreateTopicRequestHeader.class);
         log.info("updateAndCreateTopic called by {}", RemotingHelper.parseChannelRemoteAddr(ctx.channel()));
 
+        // topic不能等于clusterName
         if (requestHeader.getTopic().equals(this.brokerController.getBrokerConfig().getBrokerClusterName())) {
             String errorMsg = "the topic[" + requestHeader.getTopic() + "] is conflict with system reserved words.";
             log.warn(errorMsg);
@@ -259,6 +260,7 @@ public class AdminBrokerProcessor implements NettyRequestProcessor {
         }
 
         try {
+            // 直接返回成功响应
             response.setCode(ResponseCode.SUCCESS);
             response.setOpaque(request.getOpaque());
             response.markResponseType();
@@ -268,6 +270,7 @@ public class AdminBrokerProcessor implements NettyRequestProcessor {
             log.error("Failed to produce a proper response", e);
         }
 
+        // 从请求中解析topic配置
         TopicConfig topicConfig = new TopicConfig(requestHeader.getTopic());
         topicConfig.setReadQueueNums(requestHeader.getReadQueueNums());
         topicConfig.setWriteQueueNums(requestHeader.getWriteQueueNums());
@@ -275,8 +278,11 @@ public class AdminBrokerProcessor implements NettyRequestProcessor {
         topicConfig.setPerm(requestHeader.getPerm());
         topicConfig.setTopicSysFlag(requestHeader.getTopicSysFlag() == null ? 0 : requestHeader.getTopicSysFlag());
 
+        // 保存topic配置到private final ConcurrentMap<String, TopicConfig> topicConfigTable = new ConcurrentHashMap<String, TopicConfig>(1024);
+        // 同时更新dataVersion
         this.brokerController.getTopicConfigManager().updateTopicConfig(topicConfig);
 
+        // 向namesrv发送当前topic的配置
         this.brokerController.registerIncrementBrokerData(topicConfig, this.brokerController.getTopicConfigManager().getDataVersion());
 
         return null;
