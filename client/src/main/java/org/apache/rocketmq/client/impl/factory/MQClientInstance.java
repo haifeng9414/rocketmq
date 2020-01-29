@@ -96,6 +96,7 @@ public class MQClientInstance {
     private final ConcurrentMap<String/* group */, MQConsumerInner> consumerTable = new ConcurrentHashMap<String, MQConsumerInner>();
     private final ConcurrentMap<String/* group */, MQAdminExtInner> adminExtTable = new ConcurrentHashMap<String, MQAdminExtInner>();
     private final NettyClientConfig nettyClientConfig;
+    // MQClientAPIImpl是真正的发送请求的类，提供了多个方法，如发送消息到broker、从broker删除topic等众多方法
     private final MQClientAPIImpl mQClientAPIImpl;
     private final MQAdminImpl mQAdminImpl;
     private final ConcurrentMap<String/* Topic */, TopicRouteData> topicRouteTable = new ConcurrentHashMap<String, TopicRouteData>();
@@ -117,6 +118,7 @@ public class MQClientInstance {
     private final DefaultMQProducer defaultMQProducer;
     private final ConsumerStatsManager consumerStatsManager;
     private final AtomicLong sendHeartbeatTimesTotal = new AtomicLong(0);
+    // 初始状态为刚创建
     private ServiceState serviceState = ServiceState.CREATE_JUST;
     private DatagramSocket datagramSocket;
     private Random random = new Random();
@@ -175,6 +177,7 @@ public class MQClientInstance {
 
             info.setOrderTopic(true);
         } else {
+            // 遍历所有的队列，每个队列创建writeQueueNums个MessageQueue对象并添加到TopicPublishInfo中
             List<QueueData> qds = route.getQueueDatas();
             Collections.sort(qds);
             for (QueueData qd : qds) {
@@ -191,6 +194,7 @@ public class MQClientInstance {
                         continue;
                     }
 
+                    // 过滤非master的broker
                     if (!brokerData.getBrokerAddrs().containsKey(MixAll.MASTER_ID)) {
                         continue;
                     }
@@ -228,20 +232,28 @@ public class MQClientInstance {
         synchronized (this) {
             switch (this.serviceState) {
                 case CREATE_JUST:
+                    // 更新状态
                     this.serviceState = ServiceState.START_FAILED;
                     // If not specified,looking address from name server
+                    // 从环境变量中获取namesrv的地址，如果获取不到则从默认url抓取namesrv地址
                     if (null == this.clientConfig.getNamesrvAddr()) {
                         this.mQClientAPIImpl.fetchNameServerAddr();
                     }
                     // Start request-response channel
+                    // MQClientAPIImpl实现了真正发送各种网络请求的逻辑，必然用到了netty，这里的start方法实际上是调用
+                    // NettyRemotingClient的start方法创建netty的Bootstrap
                     this.mQClientAPIImpl.start();
                     // Start various schedule tasks
+                    // 开启定时任务，最主要的是更新路由信息，发送心跳等
                     this.startScheduledTask();
                     // Start pull service
+                    // pullMessageService是个无限循环的线程，负责从指定队列拉取消息
                     this.pullMessageService.start();
                     // Start rebalance service
+                    // rebalanceService是个无限循环的线程，以固定间隔调用当前类的doRebalance方法
                     this.rebalanceService.start();
                     // Start push service
+                    // 启动生产者
                     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
                     log.info("the client factory [{}] start OK", this.clientId);
                     this.serviceState = ServiceState.RUNNING;
@@ -255,6 +267,7 @@ public class MQClientInstance {
     }
 
     private void startScheduledTask() {
+        // 开启从指定url获取namesrv地址的定时任务
         if (null == this.clientConfig.getNamesrvAddr()) {
             this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
@@ -269,6 +282,7 @@ public class MQClientInstance {
             }, 1000 * 10, 1000 * 60 * 2, TimeUnit.MILLISECONDS);
         }
 
+        // 开启更新topic路由信息的定时任务
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -281,6 +295,7 @@ public class MQClientInstance {
             }
         }, 10, this.clientConfig.getPollNameServerInterval(), TimeUnit.MILLISECONDS);
 
+        // 根据路由信息定时删除掉线的broker，定时向broker发送心跳
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -306,6 +321,7 @@ public class MQClientInstance {
             }
         }, 1000 * 10, this.clientConfig.getPersistConsumerOffsetInterval(), TimeUnit.MILLISECONDS);
 
+        // 定时调整线程池大小
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -641,6 +657,7 @@ public class MQClientInstance {
 
                             // Update Pub info
                             {
+                                // TopicPublishInfo对象包含了所有可写队列对应的MessageQueue对象
                                 TopicPublishInfo publishInfo = topicRouteData2TopicPublishInfo(topic, topicRouteData);
                                 publishInfo.setHaveTopicRouterInfo(true);
                                 Iterator<Entry<String, MQProducerInner>> it = this.producerTable.entrySet().iterator();
@@ -648,6 +665,7 @@ public class MQClientInstance {
                                     Entry<String, MQProducerInner> entry = it.next();
                                     MQProducerInner impl = entry.getValue();
                                     if (impl != null) {
+                                        // 将关联关系添加到topicPublishInfoTable
                                         impl.updateTopicPublishInfo(topic, publishInfo);
                                     }
                                 }
@@ -655,6 +673,7 @@ public class MQClientInstance {
 
                             // Update sub info
                             {
+                                // subscribeInfo对象包含了所有可读队列对应的MessageQueue对象
                                 Set<MessageQueue> subscribeInfo = topicRouteData2TopicSubscribeInfo(topic, topicRouteData);
                                 Iterator<Entry<String, MQConsumerInner>> it = this.consumerTable.entrySet().iterator();
                                 while (it.hasNext()) {

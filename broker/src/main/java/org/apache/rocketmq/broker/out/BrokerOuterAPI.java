@@ -279,6 +279,9 @@ public class BrokerOuterAPI {
                             requestHeader.setBrokerId(brokerId);
                             requestHeader.setBrokerName(brokerName);
                             requestHeader.setClusterName(clusterName);
+                            // 向namesrv发送请求查询当前broker对应的BrokerLiveInfo对象中保存的dataVersion和当前的dataVersion
+                            // 是否相等，不相等时响应的changed为true，body为namesrv中保存的dataVersion
+                            // 该请求也起到了心跳的作用
                             RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.QUERY_DATA_VERSION, requestHeader);
                             request.setBody(topicConfigWrapper.getDataVersion().encode());
                             RemotingCommand response = remotingClient.invokeSync(namesrvAddr, request, timeoutMills);

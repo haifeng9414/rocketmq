@@ -553,20 +553,25 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         long beginTimestampFirst = System.currentTimeMillis();
         long beginTimestampPrev = beginTimestampFirst;
         long endTimestamp = beginTimestampFirst;
+        // TopicPublishInfo包含了从namesrv查询到的topic对应的MessageQueue，所以TopicPublishInfo对象相当于topic的路由信息
         TopicPublishInfo topicPublishInfo = this.tryToFindTopicPublishInfo(msg.getTopic());
+        // 如果messageQueue列表不为空就表示当前获取到的路由信息可用
         if (topicPublishInfo != null && topicPublishInfo.ok()) {
             boolean callTimeout = false;
             MessageQueue mq = null;
             Exception exception = null;
             SendResult sendResult = null;
+            // 获取发送失败时的重试次数
             int timesTotal = communicationMode == CommunicationMode.SYNC ? 1 + this.defaultMQProducer.getRetryTimesWhenSendFailed() : 1;
             int times = 0;
             String[] brokersSent = new String[timesTotal];
             for (; times < timesTotal; times++) {
                 String lastBrokerName = null == mq ? null : mq.getBrokerName();
+                // 使用MQFaultStrategy选择一个队列，默认轮询所有的队列
                 MessageQueue mqSelected = this.selectOneMessageQueue(topicPublishInfo, lastBrokerName);
                 if (mqSelected != null) {
                     mq = mqSelected;
+                    // 保存这一次选择的broker的名字
                     brokersSent[times] = mq.getBrokerName();
                     try {
                         beginTimestampPrev = System.currentTimeMillis();
@@ -580,6 +585,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                             break;
                         }
 
+                        // 发送消息到指定队列
                         sendResult = this.sendKernelImpl(msg, mq, communicationMode, sendCallback, topicPublishInfo, timeout - costTime);
                         endTimestamp = System.currentTimeMillis();
                         this.updateFaultItem(mq.getBrokerName(), endTimestamp - beginTimestampPrev, false);
@@ -589,6 +595,9 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                             case ONEWAY:
                                 return null;
                             case SYNC:
+                                // 如果sendResult不是SEND_OK说明broker收到请求了并且也做出了响应，但是由于某些原因，如系统繁忙，拒绝
+                                // 保存接收消息，此时通过retryAnotherBrokerWhenNotStoreOK配置判断是否需要换一个broker再发送，如果
+                                // 不需要则直接返回结果即可
                                 if (sendResult.getSendStatus() != SendStatus.SEND_OK) {
                                     if (this.defaultMQProducer.isRetryAnotherBrokerWhenNotStoreOK()) {
                                         continue;
@@ -653,6 +662,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 return sendResult;
             }
 
+            // 发送失败时记录日志
             String info = String.format("Send [%d] times, still failed, cost [%d]ms, Topic: %s, BrokersSent: %s",
                 times,
                 System.currentTimeMillis() - beginTimestampFirst,
@@ -687,15 +697,21 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
     private TopicPublishInfo tryToFindTopicPublishInfo(final String topic) {
         TopicPublishInfo topicPublishInfo = this.topicPublishInfoTable.get(topic);
+        // 当缓存中没有topic时
         if (null == topicPublishInfo || !topicPublishInfo.ok()) {
+            // 先在缓存中放一个默认值
             this.topicPublishInfoTable.putIfAbsent(topic, new TopicPublishInfo());
+            // 从namesrv获取topic配置，如果未发现topic对应的broker，则只会记自日志
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(topic);
+            // 如果获取topic配置成功则这里获取到的就是对应的配置，否则是上面添加的默认值
             topicPublishInfo = this.topicPublishInfoTable.get(topic);
         }
 
         if (topicPublishInfo.isHaveTopicRouterInfo() || topicPublishInfo.ok()) {
             return topicPublishInfo;
         } else {
+            // 如果topicPublishInfo不能用，则以MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC对应的topic配置为当前topic配置，使得在namesrv
+            // 中没有找到配置的topic使用MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC的配置
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(topic, true, this.defaultMQProducer);
             topicPublishInfo = this.topicPublishInfoTable.get(topic);
             return topicPublishInfo;

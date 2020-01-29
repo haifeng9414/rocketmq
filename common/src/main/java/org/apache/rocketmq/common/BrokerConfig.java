@@ -124,6 +124,7 @@ public class BrokerConfig {
     private long waitTimeMillsInHeartbeatQueue = 31 * 1000;
     private long waitTimeMillsInTransactionQueue = 3 * 1000;
 
+    // broker的开始接收发送消息请求的时间戳，未到该时间收到请求则返回error
     private long startAcceptSendRequestTimeStamp = 0L;
 
     private boolean traceOn = true;

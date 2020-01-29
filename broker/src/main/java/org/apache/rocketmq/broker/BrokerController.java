@@ -232,7 +232,7 @@ public class BrokerController {
     }
 
     public boolean initialize() throws CloneNotSupportedException {
-        // 尝试加载topics.json文件，如果加载失败则尝试加载topics.json.bak文件
+        // 尝试加载topics.json文件的内容作为配置，如果加载失败则尝试加载topics.json.bak文件
         boolean result = this.topicConfigManager.load();
 
         // 如果加载成功，则以同样的方式处理consumerOffset.json文件
@@ -644,7 +644,7 @@ public class BrokerController {
         /**
          * Default
          */
-        // 注册默认处理器
+        // 注册默认处理器，这里的AdminBrokerProcessor能够处理多个管理员相关的请求，如创建、删除topic、获取broker配置等
         AdminBrokerProcessor adminProcessor = new AdminBrokerProcessor(this);
         this.remotingServer.registerDefaultProcessor(adminProcessor, this.adminBrokerExecutor);
         this.fastRemotingServer.registerDefaultProcessor(adminProcessor, this.adminBrokerExecutor);
@@ -913,6 +913,7 @@ public class BrokerController {
             this.registerBrokerAll(true, false, true);
         }
 
+        // 默认每分钟发送一次注册请求，请求中带有所有topic配置
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -945,6 +946,10 @@ public class BrokerController {
                     this.brokerConfig.getBrokerPermission());
         }
 
+        // topicConfigTable中只保存了当前topic及其配置的映射关系，下面将该映射保存到TopicConfigSerializeWrapper并作为请求数据向
+        // namesrv发送RequestCode.REGISTER_BROKER请求，namesrv处理该请求的逻辑是遍历topicConfigSerializeWrapper中的topicConfigTable
+        // 并更新topic对应的配置，不会影响其他topic的配置，所以这里即使只传了当前topic的配置也不会删除或更新其他topic的配置。想要一个
+        // broker中的topic，需要像创建topic一样使用mqadmin命令执行管理员操作。
         ConcurrentMap<String, TopicConfig> topicConfigTable = new ConcurrentHashMap<String, TopicConfig>();
         topicConfigTable.put(topicConfig.getTopicName(), registerTopicConfig);
         TopicConfigSerializeWrapper topicConfigSerializeWrapper = new TopicConfigSerializeWrapper();
@@ -969,6 +974,7 @@ public class BrokerController {
             topicConfigWrapper.setTopicConfigTable(topicConfigTable);
         }
 
+        // needRegister方法发送QUERY_DATA_VERSION判断namesrv的dataVersion和当前broker的dataVersion是否相等
         if (forceRegister || needRegister(this.brokerConfig.getBrokerClusterName(),
             this.getBrokerAddr(),
             this.brokerConfig.getBrokerName(),

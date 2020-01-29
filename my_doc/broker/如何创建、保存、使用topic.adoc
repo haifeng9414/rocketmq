@@ -1,0 +1,16 @@
+:resources: ../resources
+
+=== 介绍
+一个topic可以存在于多个broker，每个broker中可以有多个topic的队列，保存topic及topic下的队列实际上就是在broker中创建topic并配置队列数量。broker会定时发送自己的topic配置到namesrv以达到心跳及告知namesrv自己的topic配置的目的。producer第一次发送消息时，会向namesrv获取路由信息，路由信息中会包含所有队列及队列所在的broker，再获取成功后缓存结果并定时从namesrv刷新路由信息。producer发送消息时根据路由信息选择一个broker并发送消息，broker根据消息的topic找到该topic的配置并根据配置作出响应，如topic有写权限的化就持久化消息。broker还会定时保存自己的topic配置到本地配置文件，当重启broker时加载配置文件直接初始化topic配置。
+
+下图展示了topic的工作模式，topic和队列是一对多的关系，producer发送消息时选择一个队列并将消息发送到该队列，consumer消费消息时也是从队列中获取消息。
+
+image::{resources}/rocketmq_topic_queue.png[]
+
+下图展示了topic的存储方法，topic和broker是多对多的关系，一个topic可以在多个broker中存在多个队列，如下图，producer发送消息时TestTopic的可选队列有4个，默认情况下producer发送消息时轮询选择队列发送消息。
+
+image::{resources}/rocketmq_topic_broker.png[]
+
+=== 如何创建topic
+可以通过命令行 `mqadmin updateTopic` 创建topic，
+
