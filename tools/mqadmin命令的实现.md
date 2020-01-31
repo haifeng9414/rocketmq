@@ -874,7 +874,7 @@ private synchronized RemotingCommand updateAndCreateTopic(ChannelHandlerContext 
     topicConfig.setTopicSysFlag(requestHeader.getTopicSysFlag() == null ? 0 : requestHeader.getTopicSysFlag());
 
     // 保存topic配置到private final ConcurrentMap<String, TopicConfig> topicConfigTable = new ConcurrentHashMap<String, TopicConfig>(1024);
-    // 同时更新dataVersion
+    // 同时更新dataVersion并持久化topicConfigTable也就是当前broker所有的topic的配置和dataVersion到topic.json文件
     this.brokerController.getTopicConfigManager().updateTopicConfig(topicConfig);
 
     // 向namesrv发送当前topic的配置

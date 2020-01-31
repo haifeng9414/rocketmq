@@ -129,7 +129,7 @@ public class DefaultMQAdminExtImpl implements MQAdminExt, MQAdminExtInner {
                 // 对象作为MQAdminExtInner注册到mqClientInstance实例，如果group对应的MQAdminExtInner已存在则返回false
                 boolean registerOK = mqClientInstance.registerAdminExt(this.defaultMQAdminExt.getAdminExtGroup(), this);
                 if (!registerOK) {
-                    // 注册失败时抛出异常
+                    // 防止重复注册
                     this.serviceState = ServiceState.CREATE_JUST;
                     throw new MQClientException("The adminExt group[" + this.defaultMQAdminExt.getAdminExtGroup()
                         + "] has created already, specifed another name please."
