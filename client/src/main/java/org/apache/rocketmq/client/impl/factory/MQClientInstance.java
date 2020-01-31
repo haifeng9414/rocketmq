@@ -117,6 +117,7 @@ public class MQClientInstance {
     private final RebalanceService rebalanceService;
     private final DefaultMQProducer defaultMQProducer;
     private final ConsumerStatsManager consumerStatsManager;
+    // 记录向broker发送心跳的次数
     private final AtomicLong sendHeartbeatTimesTotal = new AtomicLong(0);
     // 初始状态为刚创建
     private ServiceState serviceState = ServiceState.CREATE_JUST;
@@ -253,7 +254,7 @@ public class MQClientInstance {
                     // rebalanceService是个无限循环的线程，以固定间隔调用当前类的doRebalance方法
                     this.rebalanceService.start();
                     // Start push service
-                    // 启动生产者
+                    // 启动内置生产者
                     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
                     log.info("the client factory [{}] start OK", this.clientId);
                     this.serviceState = ServiceState.RUNNING;
@@ -546,32 +547,53 @@ public class MQClientInstance {
     }
 
     private void sendHeartbeatToAllBroker() {
+        // 创建HeartbeatData对象，HeartbeatData包含了clientId、consumerTable和producerTable属性的值
         final HeartbeatData heartbeatData = this.prepareHeartbeatData();
         final boolean producerEmpty = heartbeatData.getProducerDataSet().isEmpty();
         final boolean consumerEmpty = heartbeatData.getConsumerDataSet().isEmpty();
+        // 如果没有数据则没有必要发送心跳
         if (producerEmpty && consumerEmpty) {
             log.warn("sending heartbeat, but no consumer and no producer");
             return;
         }
 
         if (!this.brokerAddrTable.isEmpty()) {
+            // 递增心跳次数
             long times = this.sendHeartbeatTimesTotal.getAndIncrement();
             Iterator<Entry<String, HashMap<Long, String>>> it = this.brokerAddrTable.entrySet().iterator();
             while (it.hasNext()) {
                 Entry<String, HashMap<Long, String>> entry = it.next();
                 String brokerName = entry.getKey();
+                // 这里的key为brokerId，value为brokerAddr
                 HashMap<Long, String> oneTable = entry.getValue();
                 if (oneTable != null) {
                     for (Map.Entry<Long, String> entry1 : oneTable.entrySet()) {
                         Long id = entry1.getKey();
                         String addr = entry1.getValue();
                         if (addr != null) {
+                            /*
+                            rocketmq中的生产者和消费者都需要发送心跳
+
+                            生产者：
+                            生产者与namesrv集群中的其中一个节点（随机选择）建立长连接，并定期从namesrv获取topic路由信息，向提供
+                            topic服务的master broker建立长连接，且定时向master broker发送心跳
+
+                            消费者：
+                            消费者与namesrv集群中的其中一个节点（随机选择）建立长连接，并定期从namesrv获取topic路由信息，向提供
+                            topic服务的master broker、slave broker建立长连接，且定时向master broker、slave broker发送心跳
+                            */
+
+                            /*
+                            当当前MQClientInstance对象的consumerTable为空时，则说明当前MQClientInstance对象是DefaultMQProducerImpl
+                            对象创建的，服务于生产者，此时只需要发送心跳给master broker，所以这里跳过了非master的broker
+                             */
                             if (consumerEmpty) {
                                 if (id != MixAll.MASTER_ID)
                                     continue;
                             }
 
                             try {
+                                // 向指定地址的broker发送心跳
                                 int version = this.mQClientAPIImpl.sendHearbeat(addr, heartbeatData, 3000);
                                 if (!this.brokerVersionTable.containsKey(brokerName)) {
                                     this.brokerVersionTable.put(brokerName, new HashMap<String, Integer>(4));

@@ -378,6 +378,7 @@ public class TopicConfigManager extends ConfigManager {
 
         this.dataVersion.nextVersion();
 
+        // 持久化topicConfigTable及dataVersion属性到topic.json
         this.persist();
     }
 

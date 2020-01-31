@@ -273,6 +273,7 @@ public class BrokerController {
             // clientHousekeepingService定时触发ProducerManager，ConsumerManager和FilterServerManager的scanNotActiveChannel方法
             this.remotingServer = new NettyRemotingServer(this.nettyServerConfig, this.clientHousekeepingService);
             NettyServerConfig fastConfig = (NettyServerConfig) this.nettyServerConfig.clone();
+            // remotingServer和fastRemotingServer监听的端口差2，remotingServer监听10911端口，这是写死在代码中的
             fastConfig.setListenPort(nettyServerConfig.getListenPort() - 2);
             this.fastRemotingServer = new NettyRemotingServer(fastConfig, this.clientHousekeepingService);
             // 创建多个线程数量固定的线程池

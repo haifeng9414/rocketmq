@@ -32,11 +32,30 @@ import org.apache.rocketmq.remoting.protocol.LanguageCode;
 /**
  * Client Common configuration
  */
+/*
+RocketMQ的Producer（DefaultMQProducer）和Consumer(DefaultMQPushConsumer，DefaultMQPullConsumer)，运维相关的的admin
+类（DefaultMQAdminExt）都继承自该类。其中的配置无论Producer还是Consumer都可以进行设置，其中大部分都是公用的配置（有些配置只会
+对消费者或生产者生效）
+ */
 public class ClientConfig {
     public static final String SEND_MESSAGE_WITH_VIP_CHANNEL_PROPERTY = "com.rocketmq.sendMessageWithVIPChannel";
+    // namesrv的地址列表，多个namesrv用;作为地址的分隔符
+    // 默认值：-D系统参数rocketmq.namesrv.addr或环境变量NAMESRV_ADDR
     private String namesrvAddr = NameServerAddressUtils.getNameServerAddresses();
+    // clientIP用于构建clientId
     private String clientIP = RemotingUtil.getLocalAddress();
+    /*
+    客户端实例名称，从-D系统参数rocketmq.client.name获取，否则就是DEFAULT，当值为DEFAULT时，最终使用的是当前进程的pid
+    由buildMQClientId方法可知，clientId由clientIP和instanceName组成，，clientId用于唯一创建MQClientInstance对象，故如果一个
+    进程中多个实例（无论Producer还是Consumer）clientIP和instanceName默认情况下都一样，所以默认情况下他们将公用一个MQClientInstance
+    对象（同一套网络连接，线程资源等）。
+
+    此外，clientId在对于Consumer负载均衡的时候起到唯一标识的作用，一旦多个实例（无论不同进程、还是同一进程）的多个
+    Consumer实例有一样的clientID，负载均衡的时候会把两个实例当作一个client（因为clientId相同）。故为了避免不必要的问题，
+    ClientIP+instanceName的组合建议唯一，除非有意需要共用连接、资源。
+     */
     private String instanceName = System.getProperty("rocketmq.client.name", "DEFAULT");
+    // 客户端通信层接收到网络请求的时候，处理器的核数
     private int clientCallbackExecutorThreads = Runtime.getRuntime().availableProcessors();
     protected String namespace;
     protected AccessChannel accessChannel = AccessChannel.LOCAL;
@@ -44,18 +63,29 @@ public class ClientConfig {
     /**
      * Pulling topic information interval from the named server
      */
+    // 轮询从namesrv获取路由信息的时间间隔
     private int pollNameServerInterval = 1000 * 30;
     /**
      * Heartbeat interval in microseconds with message broker
+     */
+    /*
+    定期发送注册心跳到broker的间隔，客户端（生产者和消费者）依靠心跳告诉broker我是谁（clientId，ConsumerGroup/ProducerGroup），
+    订阅了什么topic，要发送什么topic等。broker会记录并维护这些信息，客户端如果动态更新这些信息，最长则需要这个心跳周期才能告诉broker。
      */
     private int heartbeatBrokerInterval = 1000 * 30;
     /**
      * Offset persistent interval for consumer
      */
+    // 作用于Consumer，持久化消费进度的间隔，RocketMQ采取的是定期批量ack的机制以持久化消费进度。也就是说每次消费消息结束后，并不会立刻
+    // ack，而是定期的集中的更新进度。所以如果消费实例突然退出（如断电）或者触发了负载均衡consumer queue重排，有可能会有已经消费过的消
+    // 费进度没有及时更新而导致重新投递。故本配置值越小，重复的概率越低，但同时也会增加网络通信的负担。
     private int persistConsumerOffsetInterval = 1000 * 5;
     private long pullTimeDelayMillsWhenException = 1000;
     private boolean unitMode = false;
     private String unitName;
+    // 是否启用vip netty通道以发送消息，-D com.rocketmq.sendMessageWithVIPChannel参数的值，若无则是false
+    // broker的netty server会起两个通信服务。两个服务除了服务的端口号不一样，其他都一样。其中一个的端口（配置端口-2）作为vip通道，
+    // 客户端可以启用本设置项把发送消息此vip通道
     private boolean vipChannelEnabled = Boolean.parseBoolean(System.getProperty(SEND_MESSAGE_WITH_VIP_CHANNEL_PROPERTY, "false"));
 
     private boolean useTLS = TlsSystemConfig.tlsEnable;

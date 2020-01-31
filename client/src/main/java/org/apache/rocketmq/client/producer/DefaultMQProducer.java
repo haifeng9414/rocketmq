@@ -59,6 +59,8 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     /**
      * Wrapping internal implementations for virtually all methods presented in this class.
      */
+    // 和DefaultMQAdminExt的实现方式一样，当前类不实现正在的逻辑，而是有内部成员变量实现，当前类的作用主要是继承ClientConfig类方便
+    // 属性配置
     protected final transient DefaultMQProducerImpl defaultMQProducerImpl;
     private final InternalLogger log = ClientLogger.getLog();
     /**
@@ -69,6 +71,8 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      *
      * See {@linktourl http://rocketmq.apache.org/docs/core-concept/} for more discussion.
      */
+    // 每个生产者都在一个生产者组中，该属性就是生产者组的组名，生产者组名相同的生产者在rocketmq中被认为是没有区别的，对于事务消息的
+    // 回查，指向同一生产者组的任意生产者都可以
     private String producerGroup;
 
     /**
@@ -123,6 +127,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     /**
      * Default constructor.
      */
+    // 使用默认生产者组名
     public DefaultMQProducer() {
         this(null, MixAll.DEFAULT_PRODUCER_GROUP, null);
     }
@@ -132,6 +137,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      *
      * @param rpcHook RPC hook to execute per each remoting command execution.
      */
+    // RPCHook能够在发送请求前和收到响应后执行回调方法
     public DefaultMQProducer(RPCHook rpcHook) {
         this(null, MixAll.DEFAULT_PRODUCER_GROUP, rpcHook);
     }
@@ -154,6 +160,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      * @param customizedTraceTopic The name value of message trace topic.If you don't config,you can use the default
      * trace topic name.
      */
+    // enableMsgTrace表示是否开启消息轨迹，customizedTraceTopic为开启消息轨迹后用于消息轨迹的topic名称
     public DefaultMQProducer(final String producerGroup, RPCHook rpcHook, boolean enableMsgTrace,
         final String customizedTraceTopic) {
         this.producerGroup = producerGroup;
@@ -267,7 +274,9 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      */
     @Override
     public void start() throws MQClientException {
+        // 将生产者组名设置为namespace%producerGroup的形式
         this.setProducerGroup(withNamespace(this.producerGroup));
+        // 初始化DefaultMQProducerImpl，主要是创建并启动MQClientInstance对象
         this.defaultMQProducerImpl.start();
         if (null != traceDispatcher) {
             try {
@@ -289,6 +298,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
         }
     }
 
+    // 下面的方法实际上都是由DefaultMQProducerImpl类实现的，所以具体分析在DefaultMQProducerImpl类中
     /**
      * Fetch message queues of topic <code>topic</code>, to which we may send/publish messages.
      *
