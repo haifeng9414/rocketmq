@@ -22,6 +22,7 @@ public class MessageQueue implements Comparable<MessageQueue>, Serializable {
     private static final long serialVersionUID = 6191200464116433425L;
     private String topic;
     private String brokerName;
+    // 队列id只是在根据QueueData的writeQueueNums属性创建MessageQueue时的序号
     private int queueId;
 
     public MessageQueue() {

@@ -433,6 +433,8 @@ public class RouteInfoManager {
         try {
             try {
                 this.lock.readLock().lockInterruptibly();
+                // topicQueueTable保存了topic及其所有QueueData对象的映射关系，QueueData保存了brokerName及队列数量，也就是说
+                // topicQueueTable保存了topic及其在所有broker下的队列配置
                 List<QueueData> queueDataList = this.topicQueueTable.get(topic);
                 if (queueDataList != null) {
                     // 保存topic下的队列信息

@@ -35,16 +35,18 @@ public class MessageClientIDSetter {
         try {
             ip = UtilAll.getIP();
         } catch (Exception e) {
+            // 如果获取ip失败，则使用时间戳构造一个假ip
             ip = createFakeIP();
         }
         LEN = ip.length + 2 + 4 + 4 + 2;
+        // 下面的数据长度就是ip.length + 2 + 4，由于pid都不会太大，所以2个字节就够了
         ByteBuffer tempBuffer = ByteBuffer.allocate(ip.length + 2 + 4);
         tempBuffer.position(0);
-        tempBuffer.put(ip);
+        tempBuffer.put(ip); // 添加ip地址
         tempBuffer.position(ip.length);
-        tempBuffer.putInt(UtilAll.getPid());
+        tempBuffer.putInt(UtilAll.getPid()); // 添加pid
         tempBuffer.position(ip.length + 2);
-        tempBuffer.putInt(MessageClientIDSetter.class.getClassLoader().hashCode());
+        tempBuffer.putInt(MessageClientIDSetter.class.getClassLoader().hashCode()); // 添加classLoad而的hashCode
         FIX_STRING = UtilAll.bytes2string(tempBuffer.array());
         setStartTime(System.currentTimeMillis());
         COUNTER = new AtomicInteger(0);
@@ -60,6 +62,7 @@ public class MessageClientIDSetter {
         cal.set(Calendar.MILLISECOND, 0);
         startTime = cal.getTimeInMillis();
         cal.add(Calendar.MONTH, 1);
+        // 每隔一个月重新计算startTime
         nextStartTime = cal.getTimeInMillis();
     }
 
@@ -117,12 +120,13 @@ public class MessageClientIDSetter {
     private static byte[] createUniqIDBuffer() {
         ByteBuffer buffer = ByteBuffer.allocate(4 + 2);
         long current = System.currentTimeMillis();
+        // 默认每隔一个月重新设置启动时间
         if (current >= nextStartTime) {
             setStartTime(current);
         }
         buffer.position(0);
-        buffer.putInt((int) (System.currentTimeMillis() - startTime));
-        buffer.putShort((short) COUNTER.getAndIncrement());
+        buffer.putInt((int) (System.currentTimeMillis() - startTime)); // 放置当前时间和broker启动时间的差值
+        buffer.putShort((short) COUNTER.getAndIncrement()); // 添加并自增COUNTER值
         return buffer.array();
     }
 

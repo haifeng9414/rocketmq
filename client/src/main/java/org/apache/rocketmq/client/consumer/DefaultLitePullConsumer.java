@@ -30,6 +30,7 @@ import org.apache.rocketmq.common.message.MessageQueue;
 import org.apache.rocketmq.common.protocol.heartbeat.MessageModel;
 import org.apache.rocketmq.remoting.RPCHook;
 
+// 采取主动调用Pull接口的模式的消费者，主动权更大，但是使用难度也相对更大，该类的很多参数在DefaultMQPushConsumer类中已经介绍过了
 public class DefaultLitePullConsumer extends ClientConfig implements LitePullConsumer {
 
     private final DefaultLitePullConsumerImpl defaultLitePullConsumerImpl;
@@ -42,22 +43,26 @@ public class DefaultLitePullConsumer extends ClientConfig implements LitePullCon
      * When multiple consumer groups exist, the flow of the data consumption model aligns with the traditional
      * publish-subscribe model. The messages are broadcast to all consumer groups.
      */
+    // 消费组的名称，用于标识一类消费者
     private String consumerGroup;
 
     /**
      * Long polling mode, the Consumer connection max suspend time, it is not recommended to modify
      */
+    // broker在长轮询下，连接最长挂起的时间
     private long brokerSuspendMaxTimeMillis = 1000 * 20;
 
     /**
      * Long polling mode, the Consumer connection timeout(must greater than brokerSuspendMaxTimeMillis), it is not
      * recommended to modify
      */
+    // broker在长轮询下，客户端等待broker响应的最长等待超时时间，此值一定要大于brokerSuspendMaxTimeMillis
     private long consumerTimeoutMillisWhenSuspend = 1000 * 30;
 
     /**
      * The socket timeout in milliseconds
      */
+    // 不启动长轮询也不指定timeout的情况下，拉取的超时时间
     private long consumerPullTimeoutMillis = 1000 * 10;
 
     /**
@@ -67,6 +72,8 @@ public class DefaultLitePullConsumer extends ClientConfig implements LitePullCon
     /**
      * Message queue listener
      */
+    // 负载均衡consume queue分配变化的通知监听器。由于pull操作需要用户自己去触发，故如果负载均衡发生变化，要有方法告知用户现在分到的新
+    // consume queue是什么。使用方可以实现此接口以达到此目的
     private MessageQueueListener messageQueueListener;
     /**
      * Offset Storage
