@@ -24,10 +24,14 @@ import org.apache.rocketmq.common.protocol.route.QueueData;
 import org.apache.rocketmq.common.protocol.route.TopicRouteData;
 
 public class TopicPublishInfo {
+    // 该属性的作用可以看MQClientInstance类的topicRouteData2TopicPublishInfo方法
     private boolean orderTopic = false;
+    // 当前TopicPublishInfo对象是否从TopicRouteData对象创建而来
     private boolean haveTopicRouterInfo = false;
+    // 从路由信息，即TopicRouteData对象的QueueData的writeQueueNums属性，创建的对应数量的队列
     private List<MessageQueue> messageQueueList = new ArrayList<MessageQueue>();
     private volatile ThreadLocalIndex sendWhichQueue = new ThreadLocalIndex();
+    // 当前TopicPublishInfo对象对应的路由信息
     private TopicRouteData topicRouteData;
 
     public boolean isOrderTopic() {

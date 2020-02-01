@@ -67,10 +67,13 @@ public class TopicConfigManager extends ConfigManager {
         }
         {
             // MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC
+            // 如果开启自动创建topic，则添加topic TBW102到topicConfigTable中
             if (this.brokerController.getBrokerConfig().isAutoCreateTopicEnable()) {
                 String topic = MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC;
                 TopicConfig topicConfig = new TopicConfig(topic);
+                // 保存到系统内置的topic列表中
                 this.systemTopicList.add(topic);
+                // 使用默认配置
                 topicConfig.setReadQueueNums(this.brokerController.getBrokerConfig()
                     .getDefaultTopicQueueNums());
                 topicConfig.setWriteQueueNums(this.brokerController.getBrokerConfig()

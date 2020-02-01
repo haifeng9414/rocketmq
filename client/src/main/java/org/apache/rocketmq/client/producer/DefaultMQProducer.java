@@ -78,21 +78,25 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     /**
      * Just for testing or demo program
      */
+
     private String createTopicKey = MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC;
 
     /**
      * Number of queues to create per default topic.
      */
+    // 自动创建topic的话，默认queue数量是多少
     private volatile int defaultTopicQueueNums = 4;
 
     /**
      * Timeout for sending messages.
      */
+    // 默认的发送超时时间
     private int sendMsgTimeout = 3000;
 
     /**
      * Compress message body threshold, namely, message body larger than 4k will be compressed on default.
      */
+    // 消息body需要压缩的阈值
     private int compressMsgBodyOverHowmuch = 1024 * 4;
 
     /**
@@ -100,6 +104,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      *
      * This may potentially cause message duplication which is up to application developers to resolve.
      */
+    // 同步发送失败的话，rocketmq内部重试多少次
     private int retryTimesWhenSendFailed = 2;
 
     /**
@@ -107,16 +112,26 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      *
      * This may potentially cause message duplication which is up to application developers to resolve.
      */
+    // 异步发送失败的话，rocketmq内部重试多少次
     private int retryTimesWhenSendAsyncFailed = 2;
 
     /**
      * Indicate whether to retry another broker on sending failure internally.
+     */
+    /*
+     发送的结果如果不是SEND_OK状态，是否当作失败处理而尝试其他broker，此配置项只对同步发送有效
+     发送结果总共有4种：
+     SEND_OK 成功，无论同步还是存储
+     FLUSH_DISK_TIMEOUT broker刷盘策略为同步刷盘（SYNC_FLUSH）的话时候，等待刷盘的时候超时
+     FLUSH_SLAVE_TIMEOUT master role采取同步复制策略（SYNC_MASTER）的时候，消息尝试同步到slave超时
+     SLAVE_NOT_AVAILABLE slave不可用
      */
     private boolean retryAnotherBrokerWhenNotStoreOK = false;
 
     /**
      * Maximum allowed message size in bytes.
      */
+    // 允许发送的最大消息体大小
     private int maxMessageSize = 1024 * 1024 * 4; // 4M
 
     /**

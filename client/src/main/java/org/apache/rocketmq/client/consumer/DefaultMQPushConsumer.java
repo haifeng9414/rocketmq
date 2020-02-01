@@ -60,6 +60,7 @@ import org.apache.rocketmq.remoting.exception.RemotingException;
  * <strong>Thread Safety:</strong> After initialization, the instance can be regarded as thread-safe.
  * </p>
  */
+// 最常用的消费者，使用push模式（长轮询），封装了各种拉取的方法和返回结果的判断
 public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsumer {
 
     private final InternalLogger log = ClientLogger.getLog();
@@ -76,6 +77,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      *
      * See <a href="http://rocketmq.apache.org/docs/core-concept/">here</a> for further discussion.
      */
+    // 消费组的名称，用于标识一类消费者
     private String consumerGroup;
 
     /**
@@ -89,6 +91,12 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      * </p>
      *
      * This field defaults to clustering.
+     */
+    /*
+     消费模式
+     可选值有两个：
+     CLUSTERING 集群消费模式
+     BROADCASTING 广播消费模式
      */
     private MessageModel messageModel = MessageModel.CLUSTERING;
 
@@ -123,6 +131,13 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      * </li>
      * </ul>
      */
+    /*
+     启动消费点策略
+     可选值有三个：
+     CONSUME_FROM_LAST_OFFSET 队列尾消费，即忽略历史消息
+     CONSUME_FROM_FIRST_OFFSET 队列头消费，即从未过期的消息开始
+     CONSUME_FROM_TIMESTAMP 按照日期选择某个位置消费，默认半个小时前的消息开始消费
+     */
     private ConsumeFromWhere consumeFromWhere = ConsumeFromWhere.CONSUME_FROM_LAST_OFFSET;
 
     /**
@@ -131,52 +146,73 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      * Implying Seventeen twelve and 01 seconds on December 23, 2013 year<br>
      * Default backtracking consumption time Half an hour ago.
      */
+    // consumeFromWhere等于CONSUME_FROM_LAST_OFFSET的时候使用，从哪个时间点开始消费
     private String consumeTimestamp = UtilAll.timeMillisToHumanString3(System.currentTimeMillis() - (1000 * 60 * 30));
 
     /**
      * Queue allocation algorithm specifying how message queues are allocated to each consumer clients.
+     */
+    /*
+    负载均衡策略算法，默认为AllocateMessageQueueAveragely（取模平均分配）
+    这个算法可以自行扩展以使用自定义的算法，目前内置的有以下算法可以使用：
+    AllocateMessageQueueAveragely 取模平均
+    AllocateMessageQueueAveragelyByCircle 环形平均
+    AllocateMessageQueueByConfig 使用指定的messageQueueList
+    AllocateMessageQueueByMachineRoom 按机房，从源码上看，必须和阿里的某些broker命名一致才行
+    AllocateMessageQueueConsistentHash 一致性哈希算法
+
+    可以实现org.apache.rocketmq.client.consumer.rebalance.AllocateMessageQueueStrategy类自行扩展算法
      */
     private AllocateMessageQueueStrategy allocateMessageQueueStrategy;
 
     /**
      * Subscription relationship
      */
+    // 保存订阅关系
     private Map<String /* topic */, String /* sub expression */> subscription = new HashMap<String, String>();
 
     /**
      * Message listener
      */
+    // 消息处理监听器（回调）
     private MessageListener messageListener;
 
     /**
      * Offset Storage
      */
+    // 消息消费进度存储器，若没有显示设置的情况下，广播模式将使用LocalFileOffsetStore，集群模式将使用RemoteBrokerOffsetStore
     private OffsetStore offsetStore;
 
     /**
      * Minimum consumer thread number
      */
+    // 消费线程池的core size
     private int consumeThreadMin = 20;
 
     /**
      * Max consumer thread number
      */
+    // 消费线程池的max size
     private int consumeThreadMax = 20;
 
     /**
      * Threshold for dynamic adjustment of the number of thread pool
      */
+    // 动态扩线程核数的消费堆积阈值
     private long adjustThreadPoolNumsThreshold = 100000;
 
     /**
      * Concurrently max span offset.it has no effect on sequential consumption
      */
+    // 并发消费下，单条consume queue队列允许的最大offset跨度，达到则触发流控。只对并发消费（ConsumeMessageConcurrentlyService）生效
     private int consumeConcurrentlyMaxSpan = 2000;
 
     /**
      * Flow control threshold on queue level, each message queue will cache at most 1000 messages by default,
      * Consider the {@code pullBatchSize}, the instantaneous value may exceed the limit
      */
+    // consume queue流控的阈值。每条consume queue的消息拉取下来后会缓存到本地，消费结束会删除。当累积达到一个阈值后，会触发该
+    // consume queue的流控
     private int pullThresholdForQueue = 1000;
 
     /**
@@ -213,21 +249,33 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     /**
      * Message pull Interval
      */
+    // 拉取的间隔，RocketMQ采取的pull的方式进行消息投递，每次发起一个异步pull请求，得到请求后会再发起下次请求，这个间隔默认是0，表示立
+    // 刻再发起。在间隔为0的场景下，消息投递的及时性几乎等同用Push实现的机制
     private long pullInterval = 0;
 
     /**
      * Batch consumption size
+     */
+    /*
+     批量消费的最大消息条数。RocketMQ的注册监听器回调的回调方法签名是类似这样的：
+     ConsumeConcurrentlyStatus consumeMessage(final List<MessageExt> msgs, final ConsumeConcurrentlyContext context);
+
+     里面的消息是一个集合List而不是单独的msg，这个consumeMessageBatchMaxSize就是控制这个集合的最大大小。
+     而由于拉取到的一批消息会立刻拆分成N（取决于consumeMessageBatchMaxSize）批消费任务，所以集合中msgs的最大大小是
+     consumeMessageBatchMaxSize和pullBatchSize的较小值
      */
     private int consumeMessageBatchMaxSize = 1;
 
     /**
      * Batch pull size
      */
+    // 一次最大拉取的批量大小。每次发起pull请求到broker，客户端需要指定一个最大batch size，表示这次拉取消息最多批量拉取多少条
     private int pullBatchSize = 32;
 
     /**
      * Whether update subscription relationship when every pull
      */
+    // 每次拉取的时候是否更新订阅关系
     private boolean postSubscriptionWhenPull = false;
 
     /**
@@ -242,16 +290,24 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      * If messages are re-consumed more than {@link #maxReconsumeTimes} before success, it's be directed to a deletion
      * queue waiting.
      */
+    /*
+     一个消息如果消费失败的话，最多重新消费多少次才投递到死信队列。这个值默认值虽然是-1，但是实际使用的时候默认并不是-1。按照消费是并行
+     还是串行消费有所不同的默认值。
+     并行：默认16次
+     串行：默认无限大（Interge.MAX_VALUE）。由于顺序消费的特性必须等待前面的消息成功消费才能消费后面的，默认无限大即一直不断消费直到消费完成。
+     */
     private int maxReconsumeTimes = -1;
 
     /**
      * Suspending pulling time for cases requiring slow pulling like flow-control scenario.
      */
+    // 串行消费时使用，如果返回ROLLBACK或者SUSPEND_CURRENT_QUEUE_A_MOMENT，再次消费的时间间隔
     private long suspendCurrentQueueTimeMillis = 1000;
 
     /**
      * Maximum amount of time in minutes a message may block the consuming thread.
      */
+    // 消费的最长超时时间，单位分钟。如果消费超时，RocketMQ会等同于消费失败来处理
     private long consumeTimeout = 15;
 
     /**

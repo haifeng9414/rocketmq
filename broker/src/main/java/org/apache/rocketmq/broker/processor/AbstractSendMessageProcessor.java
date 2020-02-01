@@ -209,7 +209,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
         namesrv返回的路由数据实际上就是TopicRouteData对象，该对象包含了所有autoCreateTopicEnable配置为true的broker的地址。所以对于
         producer发送的没有创建topic的消息，实际上使用的是MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC这个topic的路由信息，当某个autoCreateTopicEnable
         配置为true的broker接收到这种消息后，这里的获取到的topicConfig就是null，此时broker会以MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC
-        这个topic的配置为源，创建topic的配置，这样下次在收到这个topic的消息时就能直接获取到配置，而broker也会通过心跳告诉namesrv自己
+        这个topic的配置为源，创建topic的配置，这样下次再收到这个topic的消息时就能直接获取到配置，而broker也会通过心跳告诉namesrv自己
         支持了之前那个不存在的topic
 
         测试的时候可以用这个特性，但是线上最好把autoCreateTopicEnable关掉，因为rocketmq在发送消息时，先去获取topic的路由信息，如果topic
@@ -255,8 +255,12 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
             }
         }
 
+        // 从MQClientInstance类的topicRouteData2TopicPublishInfo方法可知，queueIdInt是创建MessageQueue时的循环索引值，该值
+        // 的范围肯定是0~QueueData类的writeQueueNums值 - 1之间，也就是0~topicConfig.getWriteQueueNums() - 1之间，当然对于消费者
+        // 的情况，那就是0~topicConfig.getReadQueueNums() - 1
         int queueIdInt = requestHeader.getQueueId();
         int idValid = Math.max(topicConfig.getWriteQueueNums(), topicConfig.getReadQueueNums());
+        // 超出合法值则报错
         if (queueIdInt >= idValid) {
             String errorInfo = String.format("request queueId[%d] is illegal, %s Producer: %s",
                 queueIdInt,

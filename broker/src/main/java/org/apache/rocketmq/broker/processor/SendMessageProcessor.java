@@ -317,7 +317,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
         // 保存regionId到extFields
         response.addExtField(MessageConst.PROPERTY_MSG_REGION, this.brokerController.getBrokerConfig().getRegionId());
-        // 保存是否需要跟踪
+        // 保存是否启用消息轨迹
         response.addExtField(MessageConst.PROPERTY_TRACE_SWITCH, String.valueOf(this.brokerController.getBrokerConfig().isTraceOn()));
 
         log.debug("receive SendMessage request command, {}", request);
