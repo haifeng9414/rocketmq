@@ -34,9 +34,12 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
         FaultItem old = this.faultItemTable.get(name);
         if (null == old) {
             final FaultItem faultItem = new FaultItem(name);
+            // 保存延迟级别
             faultItem.setCurrentLatency(currentLatency);
+            // 设置延迟时间
             faultItem.setStartTimestamp(System.currentTimeMillis() + notAvailableDuration);
 
+            // 保存结果
             old = this.faultItemTable.putIfAbsent(name, faultItem);
             if (old != null) {
                 old.setCurrentLatency(currentLatency);
@@ -72,14 +75,18 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
         }
 
         if (!tmpList.isEmpty()) {
+            // 打乱列表
             Collections.shuffle(tmpList);
 
+            // 以FaultItem对象的currentLatency和startTimestamp属性为依据进行排序，currentLatency优先级更高
+            // 这打乱再排序是个啥意思
             Collections.sort(tmpList);
 
             final int half = tmpList.size() / 2;
             if (half <= 0) {
                 return tmpList.get(0).getName();
             } else {
+                // 返回前50%的FaultItem中的一个
                 final int i = this.whichItemWorst.getAndIncrement() % half;
                 return tmpList.get(i).getName();
             }
