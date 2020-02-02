@@ -694,6 +694,7 @@ public class MQClientInstance {
                                 // 遍历当前topicRouteData对象的QueueData，为每个QueueData对象创建writeQueueNums个MessageQueue对象，
                                 // 并保存到TopicPublishInfo对象中，即TopicPublishInfo对象包含了所有可写队列对应的MessageQueue对象
                                 TopicPublishInfo publishInfo = topicRouteData2TopicPublishInfo(topic, topicRouteData);
+                                // 标记当前TopicPublishInfo对象是从TopicRouteData对象创建而来
                                 publishInfo.setHaveTopicRouterInfo(true);
                                 Iterator<Entry<String, MQProducerInner>> it = this.producerTable.entrySet().iterator();
                                 while (it.hasNext()) {
