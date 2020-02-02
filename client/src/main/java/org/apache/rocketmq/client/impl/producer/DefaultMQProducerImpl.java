@@ -573,7 +573,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
     ) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
         this.makeSureStateOK();
         Validators.checkMessage(msg, this.defaultMQProducer);
-        final long invokeID = random.nextLong();
+        final long invokeID = random.nextLong(); // 调用编号，用于下面打印日志，标记为同一次发送消息的日志
         // 记录开始时间
         long beginTimestampFirst = System.currentTimeMillis();
         // 由于有重试机制，所以还需要一个字段记录上一次开始时间
@@ -616,6 +616,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                         // 发送消息到指定队列
                         sendResult = this.sendKernelImpl(msg, mq, communicationMode, sendCallback, topicPublishInfo, timeout - costTime);
                         endTimestamp = System.currentTimeMillis();
+                        // 调用updateFaultItem方法将这次发送延迟记录到mqFaultStrategy中
                         this.updateFaultItem(mq.getBrokerName(), endTimestamp - beginTimestampPrev, false);
                         switch (communicationMode) {
                             case ASYNC:
