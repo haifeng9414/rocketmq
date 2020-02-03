@@ -82,22 +82,14 @@ public class MQFaultStrategy {
                         // 为null
                         // 这里在lastBrokerName为null时直接返回队列，即在非重试的情况下直接使用轮询到的队列
                         // 或者如果上次使用的broker和这次选中的队列的broker名称相同，则直接返回，这也是在isAvailable为true的情况下
-                        // 个人认为当lastBrokerName不为null并且mq.getBrokerName().equals(lastBrokerName)时，上面的isAvailable
-                        // 方法应该时返回false才对，不确定什么时候会出现这种情况
+                        // 这里这么判断的效果是，此次轮询到的broker和上次失败的broker是同一个才使用，否则这个的broker延迟时间可能不是
+                        // 比较低的那个，所以不返回该broker，这个循环选不出来broker，会在下面再选
                         if (null == lastBrokerName || mq.getBrokerName().equals(lastBrokerName))
                             return mq;
                     }
                 }
 
-                /*
-                 执行到这里有两种可能性：
-                 1. 上面轮询选择的队列的broker的延迟信息还没有保存在latencyFaultTolerance中，即选中的队列所在的broker是第一次使用
-                 2. broker延迟信息在latencyFaultTolerance中，即broker被使用过，此时说明上一次选中的broker和这次选中的队列所在的broker
-                 名称不同，即上次选中的broker的队列都轮询完了
-
-                 上面两种情况都需要选择一个broker，latencyFaultTolerance的pickOneAtLeast方法根据以往的broker延迟信息选择一个broker
-                 如果latencyFaultTolerance对象中还没有broker的延迟信息，则pickOneAtLeast方法会返回null
-                */
+                // 根据latencyFaultTolerance中的延迟信息选一个延迟相对较少的那个
                 final String notBestBroker = latencyFaultTolerance.pickOneAtLeast();
                 // 获取当前topic在该broker中的写队列数量
                 int writeQueueNums = tpInfo.getQueueIdByBroker(notBestBroker);

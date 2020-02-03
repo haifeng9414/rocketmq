@@ -34,7 +34,7 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
         FaultItem old = this.faultItemTable.get(name);
         if (null == old) {
             final FaultItem faultItem = new FaultItem(name);
-            // 保存延迟级别
+            // 保存延迟级别，实际上是发送请求到结束的耗时
             faultItem.setCurrentLatency(currentLatency);
             // 设置延迟时间
             faultItem.setStartTimestamp(System.currentTimeMillis() + notAvailableDuration);
@@ -105,7 +105,9 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
 
     class FaultItem implements Comparable<FaultItem> {
         private final String name;
+        // 耗时时间
         private volatile long currentLatency;
+        // broker的可用时间
         private volatile long startTimestamp;
 
         public FaultItem(final String name) {

@@ -74,16 +74,19 @@ public class TopicPublishInfo {
         if (lastBrokerName == null) {
             return selectOneMessageQueue();
         } else {
+            // 获取保存在ThreadLocal中的counter值并递增，以便于轮询选择队列
             int index = this.sendWhichQueue.getAndIncrement();
             for (int i = 0; i < this.messageQueueList.size(); i++) {
                 int pos = Math.abs(index++) % this.messageQueueList.size();
                 if (pos < 0)
                     pos = 0;
                 MessageQueue mq = this.messageQueueList.get(pos);
+                // 如果选择的队列的broker和上次失败的broker是同一个，则跳过，否则返回
                 if (!mq.getBrokerName().equals(lastBrokerName)) {
                     return mq;
                 }
             }
+            // 如果没有选中队列则直接使用sendWhichQueue变量轮询一个队列返回
             return selectOneMessageQueue();
         }
     }

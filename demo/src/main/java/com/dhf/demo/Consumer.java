@@ -1,4 +1,4 @@
-package com.dhf.study;
+package com.dhf.demo;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.rocketmq.client.consumer.DefaultMQPushConsumer;

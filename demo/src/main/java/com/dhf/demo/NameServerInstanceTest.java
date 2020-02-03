@@ -1,4 +1,4 @@
-package com.dhf.study;
+package com.dhf.demo;
 
 import org.apache.rocketmq.common.namesrv.NamesrvConfig;
 import org.apache.rocketmq.namesrv.NamesrvController;
