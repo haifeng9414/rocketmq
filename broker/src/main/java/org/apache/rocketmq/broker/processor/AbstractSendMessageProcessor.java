@@ -179,7 +179,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
         final SendMessageRequestHeader requestHeader, final RemotingCommand response) {
         // 检查broker的permission，是否支持写入
         if (!PermName.isWriteable(this.brokerController.getBrokerConfig().getBrokerPermission())
-                /// todo: 这个isOrderTopic啥意思？
+                /// todo: 意思是必须order topic的写权限配置才有效？
             && this.brokerController.getTopicConfigManager().isOrderTopic(requestHeader.getTopic())) {
             // 返回没有权限的error
             response.setCode(ResponseCode.NO_PERMISSION);
@@ -215,8 +215,12 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
         测试的时候可以用这个特性，但是线上最好把autoCreateTopicEnable关掉，因为rocketmq在发送消息时，先去获取topic的路由信息，如果topic
         是第一次发送消息，由于namesrv没有topic的路由信息，所以会再次以“TBW102”这个默认topic获取路由信息，假设broker都开启了自动创建开关，
         那么此时会获取所有broker的路由信息，消息的发送会根据负载算法选择其中一台broker发送消息，消息到达broker后，发现本地没有该topic，
-        会在创建该topic的信息塞进本地缓存中，同时会将topic路由信息注册到namesrv中，那么这样就会造成一个后果：以后所有该topic的消息，都将
-        发送到这台broker上，如果该topic消息量非常大，会造成某个broker上负载过大，这样消息的存储就达不到负载均衡的目的了。
+        会在这里创建该topic的信息并塞进本地缓存中，后台线程会将topic路由信息注册到namesrv中。如果其他生产者也发送这个不存在topic的消息，他们
+        也都会在本地根据负载均衡选择一个broker，那么可能就会有多个broker支持不存在的topic，但是也有可能仅有很少的一部分broker支持，这取决于
+        多少个broker收到那个不存在topic的消息。另外，由于所有的生产者都会定时从namesrv获取路由信息，如果其他生产者没有马上发送消息，在namesrv
+        有了不存在的topic的路由信息后，其他生产者更新了这个路由信息，再发送消息，那么这样就会造成一个后果：以后所有该topic的消息，都将
+        发送到路由信息指向的那个broker上，如果该topic消息量非常大，会造成某个broker上负载过大，这样消息的存储就达不到负载均衡的目的了。
+        所以autoCreateTopicEnable开启的情况下，不存在的topic的路由是不可控的。
          */
         TopicConfig topicConfig =
             this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());

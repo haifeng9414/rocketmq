@@ -568,7 +568,7 @@ public class BrokerController {
         /**
          * SendMessageProcessor
          */
-        SendMessageProcessor sendProcessor = new SendMessageProcessor(this);
+        SendMessageProcessor sendProcessor = new `SendMessageProcessor`(this);
         sendProcessor.registerSendMessageHook(sendMessageHookList);
         sendProcessor.registerConsumeMessageHook(consumeMessageHookList);
 

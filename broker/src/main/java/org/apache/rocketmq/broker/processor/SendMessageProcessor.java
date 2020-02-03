@@ -330,9 +330,10 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             return response;
         }
 
-        // response的code等于0时表示成功，所以这里先初始化为-1
+        // response的code等于0时表示成功，这里先初始化为-1
         response.setCode(-1);
-        // 检查请求的合法性，如请求的topic是否存在于当前broker，并且该topic在当前broker的配置是否支持写入
+        // 检查请求的合法性，如请求的topic是否存在于当前broker，并且该topic在当前broker的配置是否支持写入，该方法也对自动创建topic
+        // 提供了支持
         super.msgCheck(ctx, requestHeader, response);
         if (response.getCode() != -1) {
             return response;
@@ -344,7 +345,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         int queueIdInt = requestHeader.getQueueId();
         TopicConfig topicConfig = this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
 
-        // 选择一个队列
+        // 正常情况下不会小于0，这里以防万一
         if (queueIdInt < 0) {
             queueIdInt = Math.abs(this.random.nextInt() % 99999999) % topicConfig.getWriteQueueNums();
         }
@@ -361,8 +362,11 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         msgInner.setBody(body);
         msgInner.setFlag(requestHeader.getFlag());
         MessageAccessor.setProperties(msgInner, MessageDecoder.string2messageProperties(requestHeader.getProperties()));
+        // requestHeader对象在生产者端被创建的时间
         msgInner.setBornTimestamp(requestHeader.getBornTimestamp());
+        // 客户端的ip地址
         msgInner.setBornHost(ctx.channel().remoteAddress());
+        // 本地ip地址
         msgInner.setStoreHost(this.getStoreHost());
         // 消息的重试次数
         msgInner.setReconsumeTimes(requestHeader.getReconsumeTimes() == null ? 0 : requestHeader.getReconsumeTimes());
@@ -457,19 +461,24 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         String owner = request.getExtFields().get(BrokerStatsManager.COMMERCIAL_OWNER);
         if (sendOK) {
 
+            // 将被保存的消息的消息数、消息大小等信息添加到BrokerStatsManager中
             this.brokerController.getBrokerStatsManager().incTopicPutNums(msg.getTopic(), putMessageResult.getAppendMessageResult().getMsgNum(), 1);
             this.brokerController.getBrokerStatsManager().incTopicPutSize(msg.getTopic(),
                 putMessageResult.getAppendMessageResult().getWroteBytes());
             this.brokerController.getBrokerStatsManager().incBrokerPutNums(putMessageResult.getAppendMessageResult().getMsgNum());
 
+            // remark在响应中表示错误信息，运行到这里说明没有错误了
             response.setRemark(null);
 
+            // 设置响应的属性
             responseHeader.setMsgId(putMessageResult.getAppendMessageResult().getMsgId());
             responseHeader.setQueueId(queueIdInt);
             responseHeader.setQueueOffset(putMessageResult.getAppendMessageResult().getLogicsOffset());
 
+            // 调用ChannelHandlerContext对象的writeAndFlush方法将响应写入传输层
             doResponse(ctx, request, response);
 
+            // 如果存在SendMessageHook对象则填充sendMessageContext的属性，便于之后执行回调
             if (hasSendMessageHook()) {
                 sendMessageContext.setMsgId(responseHeader.getMsgId());
                 sendMessageContext.setQueueId(responseHeader.getQueueId());
