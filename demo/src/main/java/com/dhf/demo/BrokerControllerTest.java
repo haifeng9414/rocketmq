@@ -1,4 +1,4 @@
-package com.dhf.study;
+package com.dhf.demo;
 
 import org.apache.rocketmq.broker.BrokerController;
 import org.apache.rocketmq.common.BrokerConfig;

@@ -1,4 +1,4 @@
-package com.dhf.study;
+package com.dhf.demo;
 
 import org.apache.rocketmq.client.exception.MQClientException;
 import org.apache.rocketmq.client.producer.DefaultMQProducer;
