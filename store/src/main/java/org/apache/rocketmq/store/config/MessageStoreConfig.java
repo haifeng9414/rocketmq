@@ -129,6 +129,7 @@ public class MessageStoreConfig {
     private String messageDelayLevel = "1s 5s 10s 30s 1m 2m 3m 4m 5m 6m 7m 8m 9m 10m 20m 30m 1h 2h";
     private long flushDelayOffsetInterval = 1000 * 10;
     @ImportantField
+    // 磁盘满但是无过期文件情况下 TRUE表示强制删除文件，优先保证服务可用; FALSE标记服务不可用，文件不删除
     private boolean cleanFileForciblyEnable = true;
     private boolean warmMapedFileEnable = false;
     private boolean offsetCheckInSlave = false;
@@ -139,7 +140,9 @@ public class MessageStoreConfig {
     private int defaultQueryMaxNum = 32;
 
     @ImportantField
+    // 是否开启commitlog的"读写分离"的模式，减少避免频繁读写同一块内存导致内存锁、污染页等问题
     private boolean transientStorePoolEnable = false;
+    // 开启"读写分离"默认的情况下，直接内存的数量
     private int transientStorePoolSize = 5;
     private boolean fastFailIfNoBufferInStorePool = false;
 

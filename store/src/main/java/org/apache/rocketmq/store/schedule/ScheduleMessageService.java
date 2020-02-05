@@ -61,6 +61,7 @@ public class ScheduleMessageService extends ConfigManager {
     private final AtomicBoolean started = new AtomicBoolean(false);
     private Timer timer;
     private MessageStore writeMessageStore;
+    // 保存解析到的MessageStoreConfig类的messageDelayLevel参数的最大级别
     private int maxDelayLevel;
 
     public ScheduleMessageService(final DefaultMessageStore defaultMessageStore) {
@@ -161,7 +162,9 @@ public class ScheduleMessageService extends ConfigManager {
     }
 
     public boolean load() {
+        // 加载home目录下store/config/delayOffset.json文件
         boolean result = super.load();
+        // 解析MessageStoreConfig类的messageDelayLevel参数
         result = result && this.parseDelayLevel();
         return result;
     }
@@ -191,10 +194,10 @@ public class ScheduleMessageService extends ConfigManager {
 
     public boolean parseDelayLevel() {
         HashMap<String, Long> timeUnitTable = new HashMap<String, Long>();
-        timeUnitTable.put("s", 1000L);
-        timeUnitTable.put("m", 1000L * 60);
-        timeUnitTable.put("h", 1000L * 60 * 60);
-        timeUnitTable.put("d", 1000L * 60 * 60 * 24);
+        timeUnitTable.put("s", 1000L); // 秒
+        timeUnitTable.put("m", 1000L * 60); // 分钟
+        timeUnitTable.put("h", 1000L * 60 * 60); // 小时
+        timeUnitTable.put("d", 1000L * 60 * 60 * 24); // 天
 
         String levelString = this.defaultMessageStore.getMessageStoreConfig().getMessageDelayLevel();
         try {
