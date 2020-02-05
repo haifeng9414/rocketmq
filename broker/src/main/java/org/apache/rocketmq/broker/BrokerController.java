@@ -266,7 +266,7 @@ public class BrokerController {
             }
         }
 
-        // 调用DefaultMessageStore内部某些成员变量的load等初始化方法
+        // 调用DefaultMessageStore内部某些成员变量的load等初始化方法，即恢复broker中持久化的comminlog、consumerQueue等资源
         result = result && this.messageStore.load();
 
         if (result) {
@@ -568,7 +568,7 @@ public class BrokerController {
         /**
          * SendMessageProcessor
          */
-        SendMessageProcessor sendProcessor = new `SendMessageProcessor`(this);
+        SendMessageProcessor sendProcessor = new SendMessageProcessor(this);
         sendProcessor.registerSendMessageHook(sendMessageHookList);
         sendProcessor.registerConsumeMessageHook(consumeMessageHookList);
 

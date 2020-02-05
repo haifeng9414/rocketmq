@@ -90,6 +90,7 @@ public class CommitLog {
     }
 
     public boolean load() {
+        // 加载home目录下的store/commitlog文件夹内容
         boolean result = this.mappedFileQueue.load();
         log.info("load commit log " + (result ? "OK" : "Failed"));
         return result;
@@ -568,6 +569,7 @@ public class CommitLog {
         if (tranType == MessageSysFlag.TRANSACTION_NOT_TYPE
             || tranType == MessageSysFlag.TRANSACTION_COMMIT_TYPE) {
             // Delay Delivery
+            // 如果是延迟消息
             if (msg.getDelayTimeLevel() > 0) {
                 if (msg.getDelayTimeLevel() > this.defaultMessageStore.getScheduleMessageService().getMaxDelayLevel()) {
                     msg.setDelayTimeLevel(this.defaultMessageStore.getScheduleMessageService().getMaxDelayLevel());
@@ -586,11 +588,13 @@ public class CommitLog {
             }
         }
 
+        // 获取客户端地址
         InetSocketAddress bornSocketAddress = (InetSocketAddress) msg.getBornHost();
         if (bornSocketAddress.getAddress() instanceof Inet6Address) {
             msg.setBornHostV6Flag();
         }
 
+        // storeHost默认就是当前broker地址
         InetSocketAddress storeSocketAddress = (InetSocketAddress) msg.getStoreHost();
         if (storeSocketAddress.getAddress() instanceof Inet6Address) {
             msg.setStoreHostAddressV6Flag();
@@ -599,43 +603,56 @@ public class CommitLog {
         long eclipsedTimeInLock = 0;
 
         MappedFile unlockMappedFile = null;
+        // MappedFile实际上就是某个commitlog文件，这里获取最新的commitlog文件
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
 
+        // putMessageLock可能是ReentrantLock也可能是自选锁，根据配置决定，默认使用自选锁
         putMessageLock.lock(); //spin or ReentrantLock ,depending on store config
         try {
+            // 获取当前时间
             long beginLockTimestamp = this.defaultMessageStore.getSystemClock().now();
             this.beginTimeInLock = beginLockTimestamp;
 
             // Here settings are stored timestamp, in order to ensure an orderly
             // global
+            // 设置消息保存时间，对于某个客户端，其同步发送的消息是有响应的。如果客户端的某个线程发送消息时将某类消息（如根据业务key做
+            // hash选择队列）发往同一个broker的同一个队列，那么客户端发送这类消息的顺序和broker收到消息的顺序肯定是一样的，这样在这里
+            // 为消息保存系统当前时间，就能根据该时间得知客户端发送的那类消息的顺序
             msg.setStoreTimestamp(beginLockTimestamp);
 
+            // 判断这个最新的commitlog文件是否为空或是否已经写满
             if (null == mappedFile || mappedFile.isFull()) {
+                // 新建一个MappedFile文件，即新建一个commitlog文件
                 mappedFile = this.mappedFileQueue.getLastMappedFile(0); // Mark: NewFile may be cause noise
             }
+            // 创建失败则报错
             if (null == mappedFile) {
                 log.error("create mapped file1 error, topic: " + msg.getTopic() + " clientAddr: " + msg.getBornHostString());
                 beginTimeInLock = 0;
                 return new PutMessageResult(PutMessageStatus.CREATE_MAPEDFILE_FAILED, null);
             }
 
+            // 将消息附加到commitlog文件
             result = mappedFile.appendMessage(msg, this.appendMessageCallback);
             switch (result.getStatus()) {
-                case PUT_OK:
+                case PUT_OK: // 保存成功直接返回
                     break;
                 case END_OF_FILE:
                     unlockMappedFile = mappedFile;
                     // Create a new file, re-write the message
+                    // 新建一个commitlog文件
                     mappedFile = this.mappedFileQueue.getLastMappedFile(0);
+                    // 新建失败则返回err
                     if (null == mappedFile) {
                         // XXX: warn and notify me
                         log.error("create mapped file2 error, topic: " + msg.getTopic() + " clientAddr: " + msg.getBornHostString());
                         beginTimeInLock = 0;
                         return new PutMessageResult(PutMessageStatus.CREATE_MAPEDFILE_FAILED, result);
                     }
+                    // 再次附加消息到新建的commitlog文件
                     result = mappedFile.appendMessage(msg, this.appendMessageCallback);
                     break;
-                case MESSAGE_SIZE_EXCEEDED:
+                case MESSAGE_SIZE_EXCEEDED: // 消息或其属性太大返回失败
                 case PROPERTIES_SIZE_EXCEEDED:
                     beginTimeInLock = 0;
                     return new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, result);
@@ -647,6 +664,7 @@ public class CommitLog {
                     return new PutMessageResult(PutMessageStatus.UNKNOWN_ERROR, result);
             }
 
+            // 计算消耗的时间
             eclipsedTimeInLock = this.defaultMessageStore.getSystemClock().now() - beginLockTimestamp;
             beginTimeInLock = 0;
         } finally {
@@ -657,17 +675,22 @@ public class CommitLog {
             log.warn("[NOTIFYME]putMessage in lock cost time(ms)={}, bodyLength={} AppendMessageResult={}", eclipsedTimeInLock, msg.getBody().length, result);
         }
 
+        // 如果附加消息成功并且没有创建新的commitlog文件则unlockMappedFile为null，否则为上一个commitlog文件，这里解锁该文件
         if (null != unlockMappedFile && this.defaultMessageStore.getMessageStoreConfig().isWarmMapedFileEnable()) {
             this.defaultMessageStore.unlockMappedFile(unlockMappedFile);
         }
 
+        // 运行到这说明附加成功了
         PutMessageResult putMessageResult = new PutMessageResult(PutMessageStatus.PUT_OK, result);
 
         // Statistics
+        // 添加统计信息
         storeStatsService.getSinglePutMessageTopicTimesTotal(msg.getTopic()).incrementAndGet();
         storeStatsService.getSinglePutMessageTopicSizeTotal(topic).addAndGet(result.getWroteBytes());
 
+        // 同步或异步刷盘
         handleDiskFlush(result, putMessageResult, msg);
+        // 如果使用的是SYNC_MASTER同步更新slave，则等待slave更新消息
         handleHA(result, putMessageResult, msg);
 
         return putMessageResult;

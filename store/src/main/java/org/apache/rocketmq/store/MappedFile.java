@@ -374,6 +374,7 @@ public class MappedFile extends ReferenceResource {
     }
 
     public boolean isFull() {
+        // fileSize默认1G
         return this.fileSize == this.wrotePosition.get();
     }
 
@@ -428,22 +429,30 @@ public class MappedFile extends ReferenceResource {
             return true;
         }
 
+        // 清空buffer
         clean(this.mappedByteBuffer);
+        // TOTAL_MAPPED_VIRTUAL_MEMORY保存有文件大小，这里再减去文件大小，相当于清空
         TOTAL_MAPPED_VIRTUAL_MEMORY.addAndGet(this.fileSize * (-1));
+        // TOTAL_MAPPED_FILES保存文件数量（其实就一个文件），这里清空
         TOTAL_MAPPED_FILES.decrementAndGet();
         log.info("unmap file[REF:" + currentRef + "] " + this.fileName + " OK");
         return true;
     }
 
     public boolean destroy(final long intervalForcibly) {
+        // 标记mappedFile文件不可用。根据mappedFile被引用的状态判断是否需要调用cleanup方法
         this.shutdown(intervalForcibly);
 
+        // 如果mappedFile引用次数小于等于0并且已经被设置为待清除状态
         if (this.isCleanupOver()) {
             try {
+
+                // 关闭文件通道
                 this.fileChannel.close();
                 log.info("close file channel " + this.fileName + " OK");
 
                 long beginTime = System.currentTimeMillis();
+                // 删除文件
                 boolean result = this.file.delete();
                 log.info("delete file[REF:" + this.getRefCount() + "] " + this.fileName
                     + (result ? " OK, " : " Failed, ") + "W:" + this.getWrotePosition() + " M:"

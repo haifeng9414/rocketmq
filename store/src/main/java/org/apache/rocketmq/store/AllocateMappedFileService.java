@@ -37,8 +37,10 @@ import org.apache.rocketmq.store.config.BrokerRole;
 public class AllocateMappedFileService extends ServiceThread {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private static int waitTimeOut = 1000 * 5;
+    // 以commitlog文件路径为key，创建该文件的请求为值，用于确保每个commitlog文件只被请求一次
     private ConcurrentMap<String, AllocateRequest> requestTable =
         new ConcurrentHashMap<String, AllocateRequest>();
+    // 保存从requestTable拿到的待创建的请求
     private PriorityBlockingQueue<AllocateRequest> requestQueue =
         new PriorityBlockingQueue<AllocateRequest>();
     private volatile boolean hasException = false;
@@ -57,7 +59,9 @@ public class AllocateMappedFileService extends ServiceThread {
             }
         }
 
+        // AllocateRequest对象表示创建新文件的请求
         AllocateRequest nextReq = new AllocateRequest(nextFilePath, fileSize);
+        // 将请求保存到map，以路径为key，request为值，如果nextFilePath在map中存在则nextPutOK为false，表示指定路径已经创建过request了
         boolean nextPutOK = this.requestTable.putIfAbsent(nextFilePath, nextReq) == null;
 
         if (nextPutOK) {
@@ -67,6 +71,7 @@ public class AllocateMappedFileService extends ServiceThread {
                 this.requestTable.remove(nextFilePath);
                 return null;
             }
+            // request保存到队列中
             boolean offerOK = this.requestQueue.offer(nextReq);
             if (!offerOK) {
                 log.warn("never expected here, add a request to preallocate queue failed");
@@ -74,8 +79,10 @@ public class AllocateMappedFileService extends ServiceThread {
             canSubmitRequests--;
         }
 
+        // nextNextFilePath为下一个将被创建的commitlog文件路径
         AllocateRequest nextNextReq = new AllocateRequest(nextNextFilePath, fileSize);
         boolean nextNextPutOK = this.requestTable.putIfAbsent(nextNextFilePath, nextNextReq) == null;
+        // 这里相当于预创建下一个commitlog的意思
         if (nextNextPutOK) {
             if (canSubmitRequests <= 0) {
                 log.warn("[NOTIFYME]TransientStorePool is not enough, so skip preallocate mapped file, " +
@@ -97,6 +104,7 @@ public class AllocateMappedFileService extends ServiceThread {
         AllocateRequest result = this.requestTable.get(nextFilePath);
         try {
             if (result != null) {
+                // 等待commitlog文件创建完成
                 boolean waitOK = result.getCountDownLatch().await(waitTimeOut, TimeUnit.MILLISECONDS);
                 if (!waitOK) {
                     log.warn("create mmap timeout " + result.getFilePath() + " " + result.getFileSize());
@@ -126,6 +134,7 @@ public class AllocateMappedFileService extends ServiceThread {
         for (AllocateRequest req : this.requestTable.values()) {
             if (req.mappedFile != null) {
                 log.info("delete pre allocated maped file, {}", req.mappedFile.getFileName());
+                // 删除文件
                 req.mappedFile.destroy(1000);
             }
         }
@@ -147,6 +156,7 @@ public class AllocateMappedFileService extends ServiceThread {
         boolean isSuccess = false;
         AllocateRequest req = null;
         try {
+            // 获取一个创建文件请求
             req = this.requestQueue.take();
             AllocateRequest expectedRequest = this.requestTable.get(req.getFilePath());
             if (null == expectedRequest) {
@@ -161,6 +171,7 @@ public class AllocateMappedFileService extends ServiceThread {
             }
 
             if (req.getMappedFile() == null) {
+                // 开始创建commitlog文件
                 long beginTime = System.currentTimeMillis();
 
                 MappedFile mappedFile;
@@ -176,6 +187,7 @@ public class AllocateMappedFileService extends ServiceThread {
                     mappedFile = new MappedFile(req.getFilePath(), req.getFileSize());
                 }
 
+                // 计算当前时间和beginTime的时间差
                 long elapsedTime = UtilAll.computeElapsedTimeMilliseconds(beginTime);
                 if (elapsedTime > 10) {
                     int queueSize = this.requestQueue.size();

@@ -33,17 +33,23 @@ public class MappedFileQueue {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private static final InternalLogger LOG_ERROR = InternalLoggerFactory.getLogger(LoggerName.STORE_ERROR_LOGGER_NAME);
 
+    // 删除mappedFile文件，即commitlog文件时删除的数量超过该值则停止删除
     private static final int DELETE_FILES_BATCH_MAX = 10;
 
     private final String storePath;
 
+    // 每个mappedFile文件的大小
     private final int mappedFileSize;
 
+    // 当前MappedFileQueue下所有mappedFile文件的引用
     private final CopyOnWriteArrayList<MappedFile> mappedFiles = new CopyOnWriteArrayList<MappedFile>();
 
+    // AllocateMappedFileService用于创建mappedFile文件
     private final AllocateMappedFileService allocateMappedFileService;
 
+    // 当前flush到的位置
     private long flushedWhere = 0;
+    // 当前commit到的位置
     private long committedWhere = 0;
 
     private volatile long storeTimestamp = 0;
@@ -57,6 +63,7 @@ public class MappedFileQueue {
 
     public void checkSelf() {
 
+        // 检查所有mappedFile文件，判断offset是否合法
         if (!this.mappedFiles.isEmpty()) {
             Iterator<MappedFile> iterator = mappedFiles.iterator();
             MappedFile pre = null;
@@ -74,6 +81,7 @@ public class MappedFileQueue {
         }
     }
 
+    // 返回在指定时间戳之后修改过的mappedFile文件中修改时间最长的那个
     public MappedFile getMappedFileByTime(final long timestamp) {
         Object[] mfs = this.copyMappedFiles(0);
 
@@ -90,6 +98,7 @@ public class MappedFileQueue {
         return (MappedFile) mfs[mfs.length - 1];
     }
 
+    // 如果mappedFiles文件数量大于指定参数，返回null，否则返回所有mappedFiles文件的引用
     private Object[] copyMappedFiles(final int reservedMappedFiles) {
         Object[] mfs;
 
@@ -121,6 +130,7 @@ public class MappedFileQueue {
         this.deleteExpiredFile(willRemoveFiles);
     }
 
+    // 从mappedFiles中删除参数中的mappedFile引用
     void deleteExpiredFile(List<MappedFile> files) {
 
         if (!files.isEmpty()) {
@@ -144,6 +154,7 @@ public class MappedFileQueue {
         }
     }
 
+    // 加载指定目录下的commitlog文件，创建对应的MappedFile对象并保存到mappedFiles中
     public boolean load() {
         File dir = new File(this.storePath);
         File[] files = dir.listFiles();
@@ -191,24 +202,30 @@ public class MappedFileQueue {
         return 0;
     }
 
+    // 返回最新的mappedFile文件，如果needCreate为true，则在最新的mappedFile文件为空或mappedFile文件已满则创建新的mappedFiled文件
+    // 并返回
     public MappedFile getLastMappedFile(final long startOffset, boolean needCreate) {
         long createOffset = -1;
         MappedFile mappedFileLast = getLastMappedFile();
 
+        // 如果最新的commitlog文件为空，则从startOffset开始，下面的计算方式保证createOffset等于mappedFileSize的整数倍
         if (mappedFileLast == null) {
             createOffset = startOffset - (startOffset % this.mappedFileSize);
         }
 
+        // 如果commitlog不为空则获取下一个创建的commitlog的起始offset
         if (mappedFileLast != null && mappedFileLast.isFull()) {
             createOffset = mappedFileLast.getFileFromOffset() + this.mappedFileSize;
         }
 
         if (createOffset != -1 && needCreate) {
+            // 根据offset获取即将创建的commitlog文件的路径
             String nextFilePath = this.storePath + File.separator + UtilAll.offset2FileName(createOffset);
             String nextNextFilePath = this.storePath + File.separator
                 + UtilAll.offset2FileName(createOffset + this.mappedFileSize);
             MappedFile mappedFile = null;
 
+            // 如果allocateMappedFileService不为空则使用allocateMappedFileService创建MappedFile。否则直接new一个
             if (this.allocateMappedFileService != null) {
                 mappedFile = this.allocateMappedFileService.putRequestAndReturnMappedFile(nextFilePath,
                     nextNextFilePath, this.mappedFileSize);
@@ -221,6 +238,7 @@ public class MappedFileQueue {
             }
 
             if (mappedFile != null) {
+                // 如果mappedFiles为空表示刚创建的MappedFile对象是第一个commitlog文件
                 if (this.mappedFiles.isEmpty()) {
                     mappedFile.setFirstCreateInQueue(true);
                 }
@@ -233,10 +251,12 @@ public class MappedFileQueue {
         return mappedFileLast;
     }
 
+    // 获取最新的mappedFile文件，有必要的话创建一个新的mappedFile文件
     public MappedFile getLastMappedFile(final long startOffset) {
         return getLastMappedFile(startOffset, true);
     }
 
+    // 返回最新的mappedFile文件
     public MappedFile getLastMappedFile() {
         MappedFile mappedFileLast = null;
 
@@ -333,10 +353,15 @@ public class MappedFileQueue {
         }
     }
 
+    // expiredTime用于指定删除mappedFile文件时多久时间内修改过的不能删除
+    // deleteFilesInterval用于指定每次删除一个文件后sleep多久
+    // intervalForcibly参数为删除文件时mappedFile的shutdown方法的参数
+    // cleanImmediately用于指定是否忽略expiredTime参数直接删除
     public int deleteExpiredFileByTime(final long expiredTime,
         final int deleteFilesInterval,
         final long intervalForcibly,
         final boolean cleanImmediately) {
+        // 当mappedFiles大小大于指定参数时返回null，否则返回mappedFiles的所有元素的引用
         Object[] mfs = this.copyMappedFiles(0);
 
         if (null == mfs)
@@ -349,15 +374,20 @@ public class MappedFileQueue {
             for (int i = 0; i < mfsLength; i++) {
                 MappedFile mappedFile = (MappedFile) mfs[i];
                 long liveMaxTimestamp = mappedFile.getLastModifiedTimestamp() + expiredTime;
+                // 在expiredTime时间内没有修改过或cleanImmediately为true则进行删除操作
                 if (System.currentTimeMillis() >= liveMaxTimestamp || cleanImmediately) {
+                    // 删除文件
                     if (mappedFile.destroy(intervalForcibly)) {
+                        // 保存被删除的文件
                         files.add(mappedFile);
                         deleteCount++;
 
+                        // 超过一次删除的数量则停止删除
                         if (files.size() >= DELETE_FILES_BATCH_MAX) {
                             break;
                         }
 
+                        // (i + 1) < mfsLength因为删除最后一个文件后没必要sleep了
                         if (deleteFilesInterval > 0 && (i + 1) < mfsLength) {
                             try {
                                 Thread.sleep(deleteFilesInterval);
@@ -374,11 +404,13 @@ public class MappedFileQueue {
             }
         }
 
+        // 将被删除文件的引用从mappedFiles中删除
         deleteExpiredFile(files);
 
         return deleteCount;
     }
 
+    // 删除offset小于指定参数的mappedFile
     public int deleteExpiredFileByOffset(long offset, int unitSize) {
         Object[] mfs = this.copyMappedFiles(0);
 
@@ -424,11 +456,14 @@ public class MappedFileQueue {
 
     public boolean flush(final int flushLeastPages) {
         boolean result = true;
+        // 获取flush的位置所在的mappedFile
         MappedFile mappedFile = this.findMappedFileByOffset(this.flushedWhere, this.flushedWhere == 0);
         if (mappedFile != null) {
             long tmpTimeStamp = mappedFile.getStoreTimestamp();
+            // flush当前文件
             int offset = mappedFile.flush(flushLeastPages);
             long where = mappedFile.getFileFromOffset() + offset;
+            // 更新最新的flush位置
             result = where == this.flushedWhere;
             this.flushedWhere = where;
             if (0 == flushLeastPages) {
@@ -459,11 +494,13 @@ public class MappedFileQueue {
      * @param returnFirstOnNotFound If the mapped file is not found, then return the first one.
      * @return Mapped file or null (when not found and returnFirstOnNotFound is <code>false</code>).
      */
+    // 返回offset对应的mappedFile文件
     public MappedFile findMappedFileByOffset(final long offset, final boolean returnFirstOnNotFound) {
         try {
             MappedFile firstMappedFile = this.getFirstMappedFile();
             MappedFile lastMappedFile = this.getLastMappedFile();
             if (firstMappedFile != null && lastMappedFile != null) {
+                // 如何offset不在第一个到最后一个mappedFile的offset范围内则警告
                 if (offset < firstMappedFile.getFileFromOffset() || offset >= lastMappedFile.getFileFromOffset() + this.mappedFileSize) {
                     LOG_ERROR.warn("Offset not matched. Request offset: {}, firstOffset: {}, lastOffset: {}, mappedFileSize: {}, mappedFiles count: {}",
                         offset,
@@ -472,6 +509,7 @@ public class MappedFileQueue {
                         this.mappedFileSize,
                         this.mappedFiles.size());
                 } else {
+                    // 获取offset对应的mappedFile索引
                     int index = (int) ((offset / this.mappedFileSize) - (firstMappedFile.getFileFromOffset() / this.mappedFileSize));
                     MappedFile targetFile = null;
                     try {
