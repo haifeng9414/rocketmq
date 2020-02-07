@@ -45,24 +45,40 @@ public class MappedFile extends ReferenceResource {
     public static final int OS_PAGE_SIZE = 1024 * 4;
     protected static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
+    // 在执行cleanup方法前TOTAL_MAPPED_VIRTUAL_MEMORY保存文件大小
     private static final AtomicLong TOTAL_MAPPED_VIRTUAL_MEMORY = new AtomicLong(0);
 
+    // 在执行cleanup方法前TOTAL_MAPPED_FILES保存文件数量（其实就一个文件）
     private static final AtomicInteger TOTAL_MAPPED_FILES = new AtomicInteger(0);
+    // 保存写入的位置
     protected final AtomicInteger wrotePosition = new AtomicInteger(0);
+    // 如果采用"读写分离"的模式，消息会先写入writeBuffer，此时数据没有写入到mappedByteBuffer，所以不算真正的写入，需要把writeBuffer
+    // 的数据写入到mappedByteBuffer才行，该变量就是保存写入到mappedByteBuffer的位置，如果wrotePosition == committedPosition表示
+    // 数据全提交了
     protected final AtomicInteger committedPosition = new AtomicInteger(0);
+    // 数据写入mappedByteBuffer不代表真正的文件中就有数据了，还需要flush，这里保存flush的位置
     private final AtomicInteger flushedPosition = new AtomicInteger(0);
+    // commitlog文件的大小，默认1G
     protected int fileSize;
     protected FileChannel fileChannel;
     /**
      * Message will put to here first, and then reput to FileChannel if writeBuffer is not null.
      */
+    // 采用"读写分离"的模式时消息会先写入该buffer，而不是直接写入mappedByteBuffer
     protected ByteBuffer writeBuffer = null;
+    // 用于获取writeBuffer的buffer池
     protected TransientStorePool transientStorePool = null;
+    // commitlog文件的名称
     private String fileName;
+    // commitlog文件的起始offset
     private long fileFromOffset;
+    // 指向commitlog文件
     private File file;
+    // commitlog文件的内存映射buffer
     private MappedByteBuffer mappedByteBuffer;
+    // 上次写入消息的时间
     private volatile long storeTimestamp = 0;
+    // 当前commitlog文件是否是第一个commitlog文件
     private boolean firstCreateInQueue = false;
 
     public MappedFile() {
@@ -144,6 +160,7 @@ public class MappedFile extends ReferenceResource {
     public void init(final String fileName, final int fileSize,
         final TransientStorePool transientStorePool) throws IOException {
         init(fileName, fileSize);
+        // 如果传入了transientStorePool则表示采用"读写分离"的模式，这里从transientStorePool获取一个用于写入消息的buffer
         this.writeBuffer = transientStorePool.borrowBuffer();
         this.transientStorePool = transientStorePool;
     }
@@ -159,6 +176,7 @@ public class MappedFile extends ReferenceResource {
 
         try {
             this.fileChannel = new RandomAccessFile(this.file, "rw").getChannel();
+            // 内存映射
             this.mappedByteBuffer = this.fileChannel.map(MapMode.READ_WRITE, 0, fileSize);
             TOTAL_MAPPED_VIRTUAL_MEMORY.addAndGet(fileSize);
             TOTAL_MAPPED_FILES.incrementAndGet();
@@ -200,10 +218,20 @@ public class MappedFile extends ReferenceResource {
         assert messageExt != null;
         assert cb != null;
 
+        // 获取上次写入的位置
         int currentPos = this.wrotePosition.get();
 
         if (currentPos < this.fileSize) {
+            // 如果开启了"读写分离"模式则使用写buffer，也就是writeBuffer，否则使用内存映射的buffer
+            // slice方法返回一个新的ByteBuffer对象，该对象和原ByteBuffer指向同一个buffer，但是新建
+            // 的ByteBuffer的position等于0，capacity等于原ByteBuffer的capacity - position，也就是
+            // slice返回剩余可写入的buffer
             ByteBuffer byteBuffer = writeBuffer != null ? writeBuffer.slice() : this.mappedByteBuffer.slice();
+            // 每次创建ByteBuffer对象时，都是通过上面slice方法返回的，虽然新建的ByteBuffer对象和上面的writeBuffer或mappedByteBuffer
+            // 使用的是同一个缓存区，但是新建的ByteBuffer对象的position和capacity等属性和上面两个ByteBuffer对象互不影响，所以每次都
+            // 使用slice并在不操作上面两个ByteBuffer对象的情况下，上面两个ByteBuffer对象的position和capacity属性始终不变，分别等于
+            // 0和commitlog文件大小。因此，slice出来的新的ByteBuffer对象的position也始终是0，而capacity也等于commitlog文件大小。
+            // 这里将position设置为之前写入的位置，下面会从该位置继续写入数据
             byteBuffer.position(currentPos);
             AppendMessageResult result;
             if (messageExt instanceof MessageExtBrokerInner) {
@@ -213,7 +241,9 @@ public class MappedFile extends ReferenceResource {
             } else {
                 return new AppendMessageResult(AppendMessageStatus.UNKNOWN_ERROR);
             }
+            // 更新写入的位置
             this.wrotePosition.addAndGet(result.getWroteBytes());
+            // 更新写入的时间
             this.storeTimestamp = result.getStoreTimestamp();
             return result;
         }

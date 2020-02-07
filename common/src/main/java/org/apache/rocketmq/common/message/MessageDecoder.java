@@ -60,10 +60,13 @@ public class MessageDecoder {
 
     public static String createMessageId(final ByteBuffer input, final ByteBuffer addr, final long offset) {
         input.flip();
+        // addr在ipv4和ipv6的limit分别为8和20，这里根据limit设置msgId的长度，这里加8是因为下面还要放置long类型的offset，占8个字节
         int msgIDLength = addr.limit() == 8 ? 16 : 28;
         input.limit(msgIDLength);
 
+        // 放置ip地址和端口
         input.put(addr);
+        // offset为当前msgId对应的msg在commitlog文件的起始offset
         input.putLong(offset);
 
         return UtilAll.bytes2string(input.array());
