@@ -74,6 +74,7 @@ public class DefaultMessageStore implements MessageStore {
     // 定时flush consumeQueue
     private final FlushConsumeQueueService flushConsumeQueueService;
 
+    // 定时删除commitlog文件
     private final CleanCommitLogService cleanCommitLogService;
 
     private final CleanConsumeQueueService cleanConsumeQueueService;
@@ -106,6 +107,7 @@ public class DefaultMessageStore implements MessageStore {
 
     private StoreCheckpoint storeCheckpoint;
 
+    // 保存broker不可写入消息的情况下收到的写入消息请求的数量，用于在达到一定数量后记录日志
     private AtomicLong printTimes = new AtomicLong(0);
 
     private final LinkedList<CommitLogDispatcher> dispatcherList;
@@ -224,7 +226,7 @@ public class DefaultMessageStore implements MessageStore {
      */
     public void start() throws Exception {
 
-        // 获取文件的独占锁以防止start方法被重复调用
+        // 获取store/lock文件的独占锁以防止start方法被重复调用
         lock = lockFile.getChannel().tryLock(0, 1, false);
         if (lock == null || lock.isShared() || !lock.isValid()) {
             throw new RuntimeException("Lock failed,MQ already started");
@@ -368,7 +370,9 @@ public class DefaultMessageStore implements MessageStore {
 
         // slave节点的put操作直接报错，下面都是处理各种异常的情况
         if (BrokerRole.SLAVE == this.messageStoreConfig.getBrokerRole()) {
+            // 记录收到的不合法写入消息请求的次数
             long value = this.printTimes.getAndIncrement();
+            // 每50000次记一次日志，这样能够减少日志数量
             if ((value % 50000) == 0) {
                 log.warn("message store is slave mode, so putMessage is forbidden ");
             }
@@ -482,9 +486,11 @@ public class DefaultMessageStore implements MessageStore {
 
     @Override
     public boolean isOSPageCacheBusy() {
+        // 获取上次写入消息时获取lock的时间
         long begin = this.getCommitLog().getBeginTimeInLock();
         long diff = this.systemClock.now() - begin;
 
+        // this.messageStoreConfig.getOsPageCacheBusyTimeOutMills()默认返回1s，这里在diff大于1s的情况下返回busy
         return diff < 10000000
             && diff > this.messageStoreConfig.getOsPageCacheBusyTimeOutMills();
     }
@@ -1526,15 +1532,19 @@ public class DefaultMessageStore implements MessageStore {
     class CleanCommitLogService {
 
         private final static int MAX_MANUAL_DELETE_FILE_TIMES = 20;
+        // 磁盘使用率超过该值时日志中会有警告，并且设置cleanImmediately为true
         private final double diskSpaceWarningLevelRatio =
             Double.parseDouble(System.getProperty("rocketmq.broker.diskSpaceWarningLevelRatio", "0.90"));
 
+        // 磁盘使用率超过该值时设置cleanImmediately为true
         private final double diskSpaceCleanForciblyRatio =
             Double.parseDouble(System.getProperty("rocketmq.broker.diskSpaceCleanForciblyRatio", "0.85"));
         private long lastRedeleteTimestamp = 0;
 
         private volatile int manualDeleteFileSeveralTimes = 0;
 
+        // 当到了删除的时间时，DefaultMessageStore.this.getMessageStoreConfig().isCleanFileForciblyEnable()为true的情况下，
+        // 该值为true时会忽略commitlog文件的修改时间执行destory方法删除文件（不一定真的会删除，根据文件状态决定）
         private volatile boolean cleanImmediately = false;
 
         public void excuteDeleteFilesManualy() {
@@ -1585,6 +1595,7 @@ public class DefaultMessageStore implements MessageStore {
                 // 1小时
                 fileReservedTime *= 60 * 60 * 1000;
 
+                // 删除过期的文件
                 deleteCount = DefaultMessageStore.this.commitLog.deleteExpiredFile(fileReservedTime, deletePhysicFilesInterval,
                     destroyMapedFileIntervalForcibly, cleanAtOnce);
                 if (deleteCount > 0) {
@@ -1700,6 +1711,7 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     class CleanConsumeQueueService {
+        // 保存所有commitlog的最小offset
         private long lastPhysicalMinOffset = 0;
 
         public void run() {
@@ -1866,6 +1878,7 @@ public class DefaultMessageStore implements MessageStore {
                     break;
                 }
 
+                // 获取从指定位置开始的commitlog文件
                 SelectMappedBufferResult result = DefaultMessageStore.this.commitLog.getData(reputFromOffset);
                 if (result != null) {
                     try {

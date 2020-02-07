@@ -221,6 +221,7 @@ public class MappedFileQueue {
         if (createOffset != -1 && needCreate) {
             // 根据offset获取即将创建的commitlog文件的路径
             String nextFilePath = this.storePath + File.separator + UtilAll.offset2FileName(createOffset);
+            // 预创建下一个文件的文件名称
             String nextNextFilePath = this.storePath + File.separator
                 + UtilAll.offset2FileName(createOffset + this.mappedFileSize);
             MappedFile mappedFile = null;
@@ -376,7 +377,7 @@ public class MappedFileQueue {
                 long liveMaxTimestamp = mappedFile.getLastModifiedTimestamp() + expiredTime;
                 // 在expiredTime时间内没有修改过或cleanImmediately为true则进行删除操作
                 if (System.currentTimeMillis() >= liveMaxTimestamp || cleanImmediately) {
-                    // 删除文件
+                    // 删除文件（不一定真的会删除，根据文件状态决定）
                     if (mappedFile.destroy(intervalForcibly)) {
                         // 保存被删除的文件
                         files.add(mappedFile);
@@ -604,6 +605,7 @@ public class MappedFileQueue {
         }
     }
 
+    // 删除所有commitlog文件及当前目录
     public void destroy() {
         for (MappedFile mf : this.mappedFiles) {
             mf.destroy(1000 * 3);

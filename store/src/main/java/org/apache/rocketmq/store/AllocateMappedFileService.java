@@ -51,10 +51,14 @@ public class AllocateMappedFileService extends ServiceThread {
     }
 
     public MappedFile putRequestAndReturnMappedFile(String nextFilePath, String nextNextFilePath, int fileSize) {
+        // 默认要创建nextFilePath和nextNextFilePath两个文件，所以这里默认假设允许创建2个请求
         int canSubmitRequests = 2;
+        // 如果开启了"读写分离"的模式
         if (this.messageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
+            // 如果开启了在无写buffer可用的情况下的快速失败配置
             if (this.messageStore.getMessageStoreConfig().isFastFailIfNoBufferInStorePool()
                 && BrokerRole.SLAVE != this.messageStore.getMessageStoreConfig().getBrokerRole()) { //if broker is slave, don't fast fail even no buffer in pool
+                // 可用的buffer数量减去等待创建的请求数量就是真正可用的buffer数量
                 canSubmitRequests = this.messageStore.getTransientStorePool().availableBufferNums() - this.requestQueue.size();
             }
         }
@@ -65,6 +69,7 @@ public class AllocateMappedFileService extends ServiceThread {
         boolean nextPutOK = this.requestTable.putIfAbsent(nextFilePath, nextReq) == null;
 
         if (nextPutOK) {
+            // 如果允许创建的请求数量小于等于0则什么也不做
             if (canSubmitRequests <= 0) {
                 log.warn("[NOTIFYME]TransientStorePool is not enough, so create mapped file error, " +
                     "RequestQueueSize : {}, StorePoolSize: {}", this.requestQueue.size(), this.messageStore.getTransientStorePool().availableBufferNums());
