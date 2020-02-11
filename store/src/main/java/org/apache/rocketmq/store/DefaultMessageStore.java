@@ -184,7 +184,8 @@ public class DefaultMessageStore implements MessageStore {
         boolean result = true;
 
         try {
-            // isTempFileExist方法返回home目录下的store文件夹是否存在
+            // isTempFileExist方法返回home目录下的store/abort文件是否存在，通过该文件是否存在来判断rocketmq上次是否是正常关闭
+            // 每次rocketmq启动时会创建该文件，关闭时会删除该文件
             boolean lastExitOK = !this.isTempFileExist();
             log.info("last shutdown {}", lastExitOK ? "normally" : "abnormally");
 
@@ -243,8 +244,10 @@ public class DefaultMessageStore implements MessageStore {
              * 4. Make sure the fall-behind messages to be dispatched before starting the commitlog, especially when the broker role are automatically changed.
              */
             long maxPhysicalPosInLogicQueue = commitLog.getMinOffset();
+            // 遍历ConsumeQueue，获取commitlog文件里所有被放置到consumeQueue的消息的最大物理地址
             for (ConcurrentMap<Integer, ConsumeQueue> maps : this.consumeQueueTable.values()) {
                 for (ConsumeQueue logic : maps.values()) {
+                    // getMaxPhysicOffset方法返回consumeQueue中最新的消息的commitlogOffset + 其在commitlog文件中占用的字节数
                     if (logic.getMaxPhysicOffset() > maxPhysicalPosInLogicQueue) {
                         maxPhysicalPosInLogicQueue = logic.getMaxPhysicOffset();
                     }
@@ -267,7 +270,13 @@ public class DefaultMessageStore implements MessageStore {
             }
             log.info("[SetReputOffset] maxPhysicalPosInLogicQueue={} clMinOffset={} clMaxOffset={} clConfirmedOffset={}",
                 maxPhysicalPosInLogicQueue, this.commitLog.getMinOffset(), this.commitLog.getMaxOffset(), this.commitLog.getConfirmOffset());
+            // reputMessageService对象会不断的扫描所有的commitlog文件，不断的取出消息并交由CommitLogDispatcher对象处理，对于
+            // 处理过的消息不会重复处理。为了实现不重复处理，需要保存已经处理过的消息的偏移量，下面的reputFromOffset变量的值就是这个
+            // 偏移量。默认CommitLogDispatcher对象包括CommitLogDispatcherBuildConsumeQueue类，该类的作用是根据commitlog中的
+            // 消息创建consumeQueue，所以可以看到上面在计算maxPhysicalPosInLogicQueue时会遍历所有的ConsumeQueue，如果消息已经
+            // 在consumeQueue存在了就不需要再通过reputMessageService对象进行处理了。
             this.reputMessageService.setReputFromOffset(maxPhysicalPosInLogicQueue);
+            // reputMessageService对象本质上是个线程，这里启动线程
             this.reputMessageService.start();
 
             /**
@@ -275,12 +284,15 @@ public class DefaultMessageStore implements MessageStore {
              *  2. DLedger committedPos may be missing, so here just require dispatchBehindBytes <= 0
              */
             while (true) {
-                if (dispatchBehindBytes() <= 0) {
+                // dispatchBehindBytes方法返回所有的commitlog中有多少字节的数据还没被reputMessageService对象处理
+                if (dispatchBehindBytes() <= 0) { // 小于等于0说明全部都处理完了，此时break即可
                     break;
                 }
-                Thread.sleep(1000);
+                Thread.sleep(1000); // 否则循环的sleep直到处理完
                 log.info("Try to finish doing reput the messages fall behind during the starting, reputOffset={} maxOffset={} behind={}", this.reputMessageService.getReputFromOffset(), this.getMaxPhyOffset(), this.dispatchBehindBytes());
             }
+            // 根据consumeQueueTable的值计算commitlog的topicQueueTable属性值，也就是计算所有的topic下的queue各自保存了多少消息的
+            // consume信息
             this.recoverTopicQueueTable();
         }
 
@@ -293,7 +305,9 @@ public class DefaultMessageStore implements MessageStore {
         this.commitLog.start();
         this.storeStatsService.start();
 
+        // 创建store/abort文件，该文件的作用体现在load方法中
         this.createTempFile();
+        // 开启若干定时任务，最重要的时定时执行cleanCommitLogService和cleanConsumeQueueService
         this.addScheduleTask();
         this.shutdown = false;
     }
@@ -403,6 +417,7 @@ public class DefaultMessageStore implements MessageStore {
             return new PutMessageResult(PutMessageStatus.PROPERTIES_SIZE_EXCEEDED, null);
         }
 
+        // isOSPageCacheBusy方法默认在commitlog文件被lock超过1s时返回true
         if (this.isOSPageCacheBusy()) {
             return new PutMessageResult(PutMessageStatus.OS_PAGECACHE_BUSY, null);
         }
@@ -486,10 +501,11 @@ public class DefaultMessageStore implements MessageStore {
 
     @Override
     public boolean isOSPageCacheBusy() {
-        // 获取上次写入消息时获取lock的时间
+        // 如果commitlog文件正在被lock，则beginTimeInLock等于开始lock的时间，否则等于0
         long begin = this.getCommitLog().getBeginTimeInLock();
         long diff = this.systemClock.now() - begin;
 
+        // 当commitlog文件未被lock时begin等于0，此时diff肯定大于10000000，直接返回false
         // this.messageStoreConfig.getOsPageCacheBusyTimeOutMills()默认返回1s，这里在diff大于1s的情况下返回busy
         return diff < 10000000
             && diff > this.messageStoreConfig.getOsPageCacheBusyTimeOutMills();
@@ -504,7 +520,8 @@ public class DefaultMessageStore implements MessageStore {
         return systemClock;
     }
 
-    public CommitLog getCommitLog() {
+    public CommitLog getCommitLog()
+    {
         return commitLog;
     }
 
@@ -1245,6 +1262,7 @@ public class DefaultMessageStore implements MessageStore {
 
     private void addScheduleTask() {
 
+        // 定时执行cleanCommitLogService和cleanConsumeQueueService
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
@@ -1252,6 +1270,7 @@ public class DefaultMessageStore implements MessageStore {
             }
         }, 1000 * 60, this.messageStoreConfig.getCleanResourceInterval(), TimeUnit.MILLISECONDS);
 
+        // 定时检查所有mappedFile文件，判断fileFromOffset是否合法
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
@@ -1259,6 +1278,8 @@ public class DefaultMessageStore implements MessageStore {
             }
         }, 1, 10, TimeUnit.MINUTES);
 
+        // commitlog对象的beginTimeInLock属性不为0时，表示commitlog文件正在lock中，beginTimeInLock的值等于lock的时间。如果
+        // debugLockEnable为true，则在commitlog文件被lock超过1秒后，将jstack命令的信息打印到debug/lock/stack-<beginTimeInLock>-<lockTime>文件
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
@@ -1294,6 +1315,7 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     private void checkSelf() {
+        // 检查所有mappedFile文件，判断fileFromOffset是否合法
         this.commitLog.checkSelf();
 
         Iterator<Entry<String, ConcurrentMap<Integer, ConsumeQueue>>> it = this.consumeQueueTable.entrySet().iterator();
@@ -1308,7 +1330,7 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     private boolean isTempFileExist() {
-        // 默认返回home目录下的store文件
+        // 默认返回home目录下的store/abort
         String fileName = StorePathConfigHelper.getAbortFile(this.messageStoreConfig.getStorePathRootDir());
         File file = new File(fileName);
         return file.exists();
@@ -1402,7 +1424,9 @@ public class DefaultMessageStore implements MessageStore {
         for (ConcurrentMap<Integer, ConsumeQueue> maps : this.consumeQueueTable.values()) {
             for (ConsumeQueue logic : maps.values()) {
                 String key = logic.getTopic() + "-" + logic.getQueueId();
+                // 一个topic的queue对应一个consumeQueue对象，getMaxOffsetInQueue方法返回consumeQueue对象保存的消息的consume信息数量
                 table.put(key, logic.getMaxOffsetInQueue());
+                // 更新ConsumeQueue对象的最小偏移量
                 logic.correctMinOffset(minPhyOffset);
             }
         }
@@ -1857,6 +1881,7 @@ public class DefaultMessageStore implements MessageStore {
             super.shutdown();
         }
 
+        // 返回commitlog文件中有多少字节还没被reputMessageService处理
         public long behind() {
             return DefaultMessageStore.this.commitLog.getMaxOffset() - this.reputFromOffset;
         }
@@ -1882,17 +1907,41 @@ public class DefaultMessageStore implements MessageStore {
                 SelectMappedBufferResult result = DefaultMessageStore.this.commitLog.getData(reputFromOffset);
                 if (result != null) {
                     try {
+                        // 这里的startOffset等于最新的commitlog文件的fileFromOffset + (reputFromOffset % mappedFileSize)
                         this.reputFromOffset = result.getStartOffset();
 
+                        // size等于commitlog文件的wrotePosition - (reputFromOffset % mappedFileSize)，所以这里相当于遍历commitlog
+                        // 文件中已经写入pageCache但是还没有被这里的deRepot方法处理的数据
                         for (int readSize = 0; readSize < result.getSize() && doNext; ) {
+                            /*
+                             result.getByteBuffer()返回(reputFromOffset % mappedFileSize)到size部分的数据
+                             正如checkMessageAndReturnSize方法的返回值所示，这里从这部分数据中读出一条消息相关的数据
+                             return new DispatchRequest(
+                                topic,
+                                queueId,
+                                physicOffset,
+                                totalSize,
+                                tagsCode,
+                                storeTimestamp,
+                                queueOffset,
+                                keys,
+                                uniqKey,
+                                sysFlag,
+                                preparedTransactionOffset,
+                                propertiesMap
+                            );
+                             */
                             DispatchRequest dispatchRequest =
                                 DefaultMessageStore.this.commitLog.checkMessageAndReturnSize(result.getByteBuffer(), false, false);
                             int size = dispatchRequest.getBufferSize() == -1 ? dispatchRequest.getMsgSize() : dispatchRequest.getBufferSize();
 
                             if (dispatchRequest.isSuccess()) {
                                 if (size > 0) {
+                                    // 遍历CommitLogDispatcher对象处理当前的消息，CommitLogDispatcher默认有两个，CommitLogDispatcherBuildConsumeQueue
+                                    // 和CommitLogDispatcherBuildIndex
                                     DefaultMessageStore.this.doDispatch(dispatchRequest);
 
+                                    // 如果是master broker并且开启了长轮询
                                     if (BrokerRole.SLAVE != DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole()
                                         && DefaultMessageStore.this.brokerConfig.isLongPollingEnable()) {
                                         DefaultMessageStore.this.messageArrivingListener.arriving(dispatchRequest.getTopic(),
@@ -1901,8 +1950,10 @@ public class DefaultMessageStore implements MessageStore {
                                             dispatchRequest.getBitMap(), dispatchRequest.getPropertiesMap());
                                     }
 
+                                    // 更新处理完成的位置
                                     this.reputFromOffset += size;
                                     readSize += size;
+                                    // 计算统计数据
                                     if (DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE) {
                                         DefaultMessageStore.this.storeStatsService
                                             .getSinglePutMessageTopicTimesTotal(dispatchRequest.getTopic()).incrementAndGet();

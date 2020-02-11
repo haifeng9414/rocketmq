@@ -59,10 +59,11 @@ public class CommitLog {
 
     private final AppendMessageCallback appendMessageCallback;
     private final ThreadLocal<MessageExtBatchEncoder> batchEncoderThreadLocal;
-    // key为topic-queueId组成的字符串，value为当前队列放置了多少条消息
+    // key为topic-queueId组成的字符串，value为当前队列放置了多少条消息的consume信息
     protected HashMap<String/* topic-queueid */, Long/* offset */> topicQueueTable = new HashMap<String, Long>(1024);
     protected volatile long confirmOffset = -1L;
 
+    // 不为0时，表示commitlog文件正在lock中，beginTimeInLock的值等于lock的时间，具体可以看putMessage方法
     private volatile long beginTimeInLock = 0;
     protected final PutMessageLock putMessageLock;
 
@@ -608,14 +609,15 @@ public class CommitLog {
         long eclipsedTimeInLock = 0;
 
         MappedFile unlockMappedFile = null;
-        // MappedFile实际上就是某个commitlog文件，这里获取最新的commitlog文件
+        // MappedFile实际上就是某个commitlog或consumeQueue文件，这里获取最新的commitlog文件
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
 
-        // putMessageLock可能是ReentrantLock也可能是自选锁，根据配置决定，默认使用自选锁
+        // putMessageLock可能是ReentrantLock也可能是自选锁，根据配置决定，默认使用自旋锁
         putMessageLock.lock(); //spin or ReentrantLock ,depending on store config
         try {
             // 获取当前时间
             long beginLockTimestamp = this.defaultMessageStore.getSystemClock().now();
+            // 记录开始lock的时间
             this.beginTimeInLock = beginLockTimestamp;
 
             // Here settings are stored timestamp, in order to ensure an orderly
@@ -642,7 +644,7 @@ public class CommitLog {
             switch (result.getStatus()) {
                 case PUT_OK: // 保存成功直接返回
                     break;
-                case END_OF_FILE:
+                case END_OF_FILE: // 如果最新的commitlog文件的剩余容量不够放置当前消息
                     unlockMappedFile = mappedFile;
                     // Create a new file, re-write the message
                     // 新建一个commitlog文件
@@ -657,7 +659,7 @@ public class CommitLog {
                     // 再次附加消息到新建的commitlog文件
                     result = mappedFile.appendMessage(msg, this.appendMessageCallback);
                     break;
-                case MESSAGE_SIZE_EXCEEDED: // 消息或其属性太大返回失败
+                case MESSAGE_SIZE_EXCEEDED: // 消息或其属性超出限制返回失败
                 case PROPERTIES_SIZE_EXCEEDED:
                     beginTimeInLock = 0;
                     return new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, result);
@@ -680,7 +682,8 @@ public class CommitLog {
             log.warn("[NOTIFYME]putMessage in lock cost time(ms)={}, bodyLength={} AppendMessageResult={}", eclipsedTimeInLock, msg.getBody().length, result);
         }
 
-        // 如果附加消息成功并且没有创建新的commitlog文件则unlockMappedFile为null，否则为上一个commitlog文件，这里解锁该文件
+        // 如果附加消息成功并且没有创建新的commitlog文件则unlockMappedFile为null，否则为上一个commitlog文件，这里执行和mlock相反
+        // 的操作munlock，使得操作系统能够回收和swap上一个commitlog文件
         if (null != unlockMappedFile && this.defaultMessageStore.getMessageStoreConfig().isWarmMapedFileEnable()) {
             this.defaultMessageStore.unlockMappedFile(unlockMappedFile);
         }
@@ -986,31 +989,40 @@ public class CommitLog {
         public void run() {
             CommitLog.log.info(this.getServiceName() + " service started");
             while (!this.isStopped()) {
+                // 执行commit的时间间隔
                 int interval = CommitLog.this.defaultMessageStore.getMessageStoreConfig().getCommitIntervalCommitLog();
 
+                // 该变量表示至少多少页（默认每页4K）的数据没有被commit时执行commit，当commitDataLeastPages为0时不考虑多少页没有
+                // 被commit，直接执行commit
                 int commitDataLeastPages = CommitLog.this.defaultMessageStore.getMessageStoreConfig().getCommitCommitLogLeastPages();
 
+                // 多少时间忽略未被commit的数据量执行一次commit
                 int commitDataThoroughInterval =
                     CommitLog.this.defaultMessageStore.getMessageStoreConfig().getCommitCommitLogThoroughInterval();
 
                 long begin = System.currentTimeMillis();
+                // 如果到了需要执行完整的commit的时间，设置commitDataLeastPages为0即可
                 if (begin >= (this.lastCommitTimestamp + commitDataThoroughInterval)) {
                     this.lastCommitTimestamp = begin;
                     commitDataLeastPages = 0;
                 }
 
                 try {
+                    // 真正执行了commit操作时result为false，如果commit前后mappedFileQueue的committedWhere值相等则返回true
                     boolean result = CommitLog.this.mappedFileQueue.commit(commitDataLeastPages);
                     long end = System.currentTimeMillis();
                     if (!result) {
+                        // 当result为false时，说明真正执行了commit，这里更新上次commit的时间
                         this.lastCommitTimestamp = end; // result = false means some data committed.
                         //now wake up flush thread.
+                        // 唤醒执行flush操作的线程，如果是同步刷盘，则唤醒的是GroupCommitService，否则是FlushRealTimeService
                         flushCommitLogService.wakeup();
                     }
 
                     if (end - begin > 500) {
                         log.info("Commit data to file costs {} ms", end - begin);
                     }
+                    // 等待被唤醒，或等待interval的时间自动唤醒
                     this.waitForRunning(interval);
                 } catch (Throwable e) {
                     CommitLog.log.error(this.getServiceName() + " service has exception. ", e);
@@ -1018,6 +1030,7 @@ public class CommitLog {
             }
 
             boolean result = false;
+            // 最后结束的时候再commit若干次确保数据都commit了
             for (int i = 0; i < RETRY_TIMES_OVER && !result; i++) {
                 result = CommitLog.this.mappedFileQueue.commit(0);
                 CommitLog.log.info(this.getServiceName() + " service shutdown, retry " + (i + 1) + " times " + (result ? "OK" : "Not OK"));
@@ -1034,14 +1047,20 @@ public class CommitLog {
             CommitLog.log.info(this.getServiceName() + " service started");
 
             while (!this.isStopped()) {
+                // 是否以固定的时间执行flush
                 boolean flushCommitLogTimed = CommitLog.this.defaultMessageStore.getMessageStoreConfig().isFlushCommitLogTimed();
 
+                // flush的时间间隔
                 int interval = CommitLog.this.defaultMessageStore.getMessageStoreConfig().getFlushIntervalCommitLog();
+                // 该变量表示至少多少页（默认每页4K）的数据没有被flush时执行flush，当flushPhysicQueueLeastPages为0时不考虑多少页没有
+                // 被flush，直接执行flush
                 int flushPhysicQueueLeastPages = CommitLog.this.defaultMessageStore.getMessageStoreConfig().getFlushCommitLogLeastPages();
 
+                // 多少时间忽略未被flush的数据量执行一次flush
                 int flushPhysicQueueThoroughInterval =
                     CommitLog.this.defaultMessageStore.getMessageStoreConfig().getFlushCommitLogThoroughInterval();
 
+                // 表示是否打印未被flush的数据量到日志
                 boolean printFlushProgress = false;
 
                 // Print flush progress
@@ -1049,13 +1068,17 @@ public class CommitLog {
                 if (currentTimeMillis >= (this.lastFlushTimestamp + flushPhysicQueueThoroughInterval)) {
                     this.lastFlushTimestamp = currentTimeMillis;
                     flushPhysicQueueLeastPages = 0;
+                    // 每10次打印1次
                     printFlushProgress = (printTimes++ % 10) == 0;
                 }
 
                 try {
+                    // 如果是固定时间执行flush则用sleep
                     if (flushCommitLogTimed) {
                         Thread.sleep(interval);
                     } else {
+                        // 否则用waitForRunning方法等待，这样在wait超时之前，如果CommitRealTimeService对象commit了新的数据，则
+                        // 这里会被唤醒
                         this.waitForRunning(interval);
                     }
 
@@ -1237,7 +1260,9 @@ public class CommitLog {
 
     class DefaultAppendMessageCallback implements AppendMessageCallback {
         // File at the end of the minimum fixed length empty
-        // 每个文件最后强制填充一定数量的空白，这里是这些空白的最小大小
+        // 每次写入消息时，要保重消息的大小加上这里的值小于等于commitlog文件的剩余大小，之所以加上这里的值，是因为当commitlog文件的剩余
+        // 大小不足以保存一个消息时，doAppend方法会填充两个int值，并返回END_OF_FILE的结果，这里的4 + 4就是为了保证在commitlog文件放
+        // 不下一个消息时doAppend方法能够填充两个int值
         private static final int END_FILE_MIN_BLANK_LENGTH = 4 + 4;
         private final ByteBuffer msgIdMemory;
         private final ByteBuffer msgIdV6Memory;
@@ -1254,7 +1279,7 @@ public class CommitLog {
         DefaultAppendMessageCallback(final int size) {
             this.msgIdMemory = ByteBuffer.allocate(4 + 4 + 8);
             this.msgIdV6Memory = ByteBuffer.allocate(16 + 4 + 8);
-            // 容量为消息组大大小加commitlog文件末尾最少空白数量
+            // 容量为消息最大大小加END_FILE_MIN_BLANK_LENGTH
             this.msgStoreItemMemory = ByteBuffer.allocate(size + END_FILE_MIN_BLANK_LENGTH);
             this.maxMessageSize = size;
         }
@@ -1385,6 +1410,7 @@ public class CommitLog {
                 // 3 The remaining space may be any value
                 // Here the length of the specially set maxBlank
                 final long beginTimeMills = CommitLog.this.defaultMessageStore.now();
+                // 将maxBlank和CommitLog.BLANK_MAGIC_CODE写入到commitlog文件
                 byteBuffer.put(this.msgStoreItemMemory.array(), 0, maxBlank);
                 return new AppendMessageResult(AppendMessageStatus.END_OF_FILE, wroteOffset, maxBlank, msgId, msgInner.getStoreTimestamp(),
                     queueOffset, CommitLog.this.defaultMessageStore.now() - beginTimeMills);
