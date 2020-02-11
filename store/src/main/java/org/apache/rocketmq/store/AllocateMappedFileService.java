@@ -66,17 +66,21 @@ public class AllocateMappedFileService extends ServiceThread {
         // AllocateRequest对象表示创建新文件的请求
         AllocateRequest nextReq = new AllocateRequest(nextFilePath, fileSize);
         // 将请求保存到map，以路径为key，request为值，如果nextFilePath在map中存在则nextPutOK为false，表示指定路径已经创建过request了
+        // 由于下面的预创建机制，即预创建nextNextFilePath文件，所以除了第一次运行，基本上这里的nextPutOK都是false，这样每次调用
+        // putRequestAndReturnMappedFile方法都不需要等待MappedFile文件创建完成，因为在上一次putRequestAndReturnMappedFile方法
+        // 执行时就已经创建了
         boolean nextPutOK = this.requestTable.putIfAbsent(nextFilePath, nextReq) == null;
 
         if (nextPutOK) {
-            // 如果允许创建的请求数量小于等于0则什么也不做
+            // 如果允许创建的请求数量小于等于0则返回
             if (canSubmitRequests <= 0) {
                 log.warn("[NOTIFYME]TransientStorePool is not enough, so create mapped file error, " +
                     "RequestQueueSize : {}, StorePoolSize: {}", this.requestQueue.size(), this.messageStore.getTransientStorePool().availableBufferNums());
+                // 不能创建则删除请求记录
                 this.requestTable.remove(nextFilePath);
                 return null;
             }
-            // request保存到队列中
+            // request保存到阻塞队列中，供mmapOperation方法执行创建文件的操作
             boolean offerOK = this.requestQueue.offer(nextReq);
             if (!offerOK) {
                 log.warn("never expected here, add a request to preallocate queue failed");
@@ -87,7 +91,7 @@ public class AllocateMappedFileService extends ServiceThread {
         // nextNextFilePath为下一个将被创建的commitlog文件路径
         AllocateRequest nextNextReq = new AllocateRequest(nextNextFilePath, fileSize);
         boolean nextNextPutOK = this.requestTable.putIfAbsent(nextNextFilePath, nextNextReq) == null;
-        // 这里相当于预创建下一个commitlog的意思
+        // 这里相当于预创建下一个MappedFile的意思
         if (nextNextPutOK) {
             if (canSubmitRequests <= 0) {
                 log.warn("[NOTIFYME]TransientStorePool is not enough, so skip preallocate mapped file, " +
@@ -106,6 +110,10 @@ public class AllocateMappedFileService extends ServiceThread {
             return null;
         }
 
+        // requestTable保存了所有创建MappedFile文件的请求，上面的代码在允许创建文件的情况下会将MappedFile文件的AllocateRequest对象
+        // 添加到requestQueue这个阻塞队列中，AllocateMappedFileService类本身也是个线程，其run方法会不断的调用mmapOperation方法从
+        // requestQueue获取请求并执行创建MappedFile文件的逻辑，创建完成后将创建结果更新AllocateRequest对象，这里获取nextFilePath对
+        // 应的AllocateRequest对象，通过countDownLatch等待mmapOperation方法创建完nextFilePath文件
         AllocateRequest result = this.requestTable.get(nextFilePath);
         try {
             if (result != null) {
@@ -115,7 +123,11 @@ public class AllocateMappedFileService extends ServiceThread {
                     log.warn("create mmap timeout " + result.getFilePath() + " " + result.getFileSize());
                     return null;
                 } else {
+                    // 创建成功删除AllocateRequest对象
                     this.requestTable.remove(nextFilePath);
+                    // 返回被创建的MappedFile文件，此时requestTable中还存在nextNextFilePath对应的AllocateRequest对象，这里
+                    // 不需要等待nextNextFilePath创建完成，因为nextNextFilePath文件是预创建的，还没有被使用，等到需要时再从
+                    // requestTable获取对应的AllocateRequest对象并await即可
                     return result.getMappedFile();
                 }
             } else {
@@ -161,7 +173,7 @@ public class AllocateMappedFileService extends ServiceThread {
         boolean isSuccess = false;
         AllocateRequest req = null;
         try {
-            // 获取一个创建文件请求
+            // 从阻塞队列获取一个创建文件请求
             req = this.requestQueue.take();
             AllocateRequest expectedRequest = this.requestTable.get(req.getFilePath());
             if (null == expectedRequest) {
@@ -180,12 +192,16 @@ public class AllocateMappedFileService extends ServiceThread {
                 long beginTime = System.currentTimeMillis();
 
                 MappedFile mappedFile;
+                // 如果开启了"读写分离"模式
                 if (messageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
                     try {
+                        // spi，如果在META-INF/services目录下有org.apache.rocketmq.store.MappedFile文件，则以该文件中的
+                        // 类为MappedFile实现类
                         mappedFile = ServiceLoader.load(MappedFile.class).iterator().next();
                         mappedFile.init(req.getFilePath(), req.getFileSize(), messageStore.getTransientStorePool());
                     } catch (RuntimeException e) {
                         log.warn("Use default implementation.");
+                        // 找不到实现类时使用默认实现
                         mappedFile = new MappedFile(req.getFilePath(), req.getFileSize(), messageStore.getTransientStorePool());
                     }
                 } else {
@@ -201,6 +217,8 @@ public class AllocateMappedFileService extends ServiceThread {
                 }
 
                 // pre write mappedFile
+                // 如果开启预热MapedFile，则使用mlock方法锁住MapedFile文件对应的内存地址，并使用madvise方法建议操作系统预读MapedFile文件
+                // 到内存
                 if (mappedFile.getFileSize() >= this.messageStore.getMessageStoreConfig()
                     .getMappedFileSizeCommitLog()
                     &&

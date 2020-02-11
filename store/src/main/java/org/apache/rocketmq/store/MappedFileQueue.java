@@ -33,9 +33,10 @@ public class MappedFileQueue {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private static final InternalLogger LOG_ERROR = InternalLoggerFactory.getLogger(LoggerName.STORE_ERROR_LOGGER_NAME);
 
-    // 删除mappedFile文件，即commitlog文件时删除的数量超过该值则停止删除
+    // 删除mappedFile文件时删除的数量超过该值则停止删除，等待下次删除
     private static final int DELETE_FILES_BATCH_MAX = 10;
 
+    // 保存MappedFile对象对应的文件系统中的文件所在的目录，如store/commitlog和store/consumequeue/<topic>/<queueId>
     private final String storePath;
 
     // 每个mappedFile文件的大小
@@ -63,7 +64,7 @@ public class MappedFileQueue {
 
     public void checkSelf() {
 
-        // 检查所有mappedFile文件，判断offset是否合法
+        // 检查所有mappedFile文件，判断fileFromOffset是否合法
         if (!this.mappedFiles.isEmpty()) {
             Iterator<MappedFile> iterator = mappedFiles.iterator();
             MappedFile pre = null;
@@ -208,18 +209,18 @@ public class MappedFileQueue {
         long createOffset = -1;
         MappedFile mappedFileLast = getLastMappedFile();
 
-        // 如果最新的commitlog文件为空，则从startOffset开始，下面的计算方式保证createOffset等于mappedFileSize的整数倍
+        // 如果最新的MappedFile文件为空，则从startOffset开始，下面的计算方式保证createOffset等于mappedFileSize的整数倍
         if (mappedFileLast == null) {
             createOffset = startOffset - (startOffset % this.mappedFileSize);
         }
 
-        // 如果commitlog不为空则获取下一个创建的commitlog的起始offset
+        // 如果MappedFile不为空并且已经满了则获取下一个创建的MappedFile的起始offset
         if (mappedFileLast != null && mappedFileLast.isFull()) {
             createOffset = mappedFileLast.getFileFromOffset() + this.mappedFileSize;
         }
 
         if (createOffset != -1 && needCreate) {
-            // 根据offset获取即将创建的commitlog文件的路径
+            // 根据offset获取即将创建的MappedFile文件的路径
             String nextFilePath = this.storePath + File.separator + UtilAll.offset2FileName(createOffset);
             // 预创建下一个文件的文件名称
             String nextNextFilePath = this.storePath + File.separator
@@ -239,7 +240,7 @@ public class MappedFileQueue {
             }
 
             if (mappedFile != null) {
-                // 如果mappedFiles为空表示刚创建的MappedFile对象是第一个commitlog文件
+                // 如果mappedFiles为空表示刚创建的MappedFile对象是第一个MappedFile文件
                 if (this.mappedFiles.isEmpty()) {
                     mappedFile.setFirstCreateInQueue(true);
                 }
@@ -605,7 +606,7 @@ public class MappedFileQueue {
         }
     }
 
-    // 删除所有commitlog文件及当前目录
+    // 删除所有MappedFile文件及当前目录
     public void destroy() {
         for (MappedFile mf : this.mappedFiles) {
             mf.destroy(1000 * 3);

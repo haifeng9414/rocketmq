@@ -39,8 +39,12 @@ public class ConsumeQueue {
     private final ByteBuffer byteBufferIndex;
 
     private final String storePath;
+    // 默认一个consumeQueue文件保存30W条消息的consume信息，每条consume信息长度固定为20字节，所以默认一个consumeQueue文件大小为
+    // 5.72M
     private final int mappedFileSize;
+    // 保存当前consumeQueue最新的消息的commitlogOffset + 其在commitlog文件中占用的字节数
     private long maxPhysicOffset = -1;
+    // 保存当前consumeQueue文件中大于commitlog文件的最小偏移量的偏移量中的最小值，也就是当前consumeQueue文件中合法偏移量的最小值
     private volatile long minLogicOffset = 0;
     private ConsumeQueueExt consumeQueueExt = null;
 
@@ -61,6 +65,7 @@ public class ConsumeQueue {
             + File.separator + topic
             + File.separator + queueId;
 
+        // consumeQueue和commitlog文件一样也用MappedFileQueue处理
         this.mappedFileQueue = new MappedFileQueue(queueDir, mappedFileSize, null);
 
         this.byteBufferIndex = ByteBuffer.allocate(CQ_STORE_UNIT_SIZE);
@@ -336,6 +341,7 @@ public class ConsumeQueue {
         return cnt;
     }
 
+    // phyMinOffset参数为commitlog文件的最小偏移量
     public void correctMinOffset(long phyMinOffset) {
         MappedFile mappedFile = this.mappedFileQueue.getFirstMappedFile();
         long minExtAddr = 1;
@@ -348,7 +354,9 @@ public class ConsumeQueue {
                         result.getByteBuffer().getInt();
                         long tagsCode = result.getByteBuffer().getLong();
 
+                        // 只有大于等于phyMinOffset的才是合法的
                         if (offsetPy >= phyMinOffset) {
+                            // 将第一个合法的偏移量作为minLogicOffset
                             this.minLogicOffset = mappedFile.getFileFromOffset() + i;
                             log.info("Compute logical min offset: {}, topic: {}, queueId: {}",
                                 this.getMinOffsetInQueue(), this.topic, this.queueId);
@@ -558,6 +566,7 @@ public class ConsumeQueue {
         return this.getMaxOffsetInQueue() - this.getMinOffsetInQueue();
     }
 
+    // 一个topic的queue对应一个consumeQueue对象，这里返回当前consumeQueue对象已保存的消息consume数量
     public long getMaxOffsetInQueue() {
         return this.mappedFileQueue.getMaxOffset() / CQ_STORE_UNIT_SIZE;
     }
