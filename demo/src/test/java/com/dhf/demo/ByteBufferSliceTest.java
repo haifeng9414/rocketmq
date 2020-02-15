@@ -5,7 +5,13 @@ import org.junit.Test;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
-public class ByteBufferTest {
+public class ByteBufferSliceTest {
+    /**
+     * 测试slice方法创建出来的ByteBuffer对象的position和capacity属性值及该对象对原ByteBuffer对象的影响
+     *
+     * 结果是：当bb1调用slice方法创建出bb2后，bb1和bb2的position和capacity属性互不影响，且bb2的position初始等于0，capacity
+     * 等于bb1的剩余容量。将数据写入bb2会影响bb1的数据但不影响bb1的position和capacity属性
+     */
     @Test
     public void sliceTest() {
         int capacity = 5;
