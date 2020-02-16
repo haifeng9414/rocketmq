@@ -14,6 +14,7 @@ import sun.nio.ch.DirectBuffer;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
@@ -28,8 +29,8 @@ public class FileChannelAndMappedByteBufferWriteWithMlockBenchmark {
     private static final int commitLeastPages = 4;
     private static String directory = System.getProperty("java.io.tmpdir");
     // 每次测试的缓存区大小（字节）
-//    @Param({"32", "64", "128", "256", "512", "1024", "2048", "4096", "8192", "" + commitLeastPages * OS_PAGE_SIZE})
-    @Param({"" + commitLeastPages * OS_PAGE_SIZE})
+    @Param({"2048", "4096", "8192", "" + commitLeastPages * OS_PAGE_SIZE, "" + (commitLeastPages + 1) * OS_PAGE_SIZE})
+    //    @Param({"" + commitLeastPages * OS_PAGE_SIZE, "" + (commitLeastPages + 1) * OS_PAGE_SIZE})
     private int bufferSize;
     // 测试1G文件
     private int fileSize = 1024 * 1024 * 1024;
@@ -41,8 +42,8 @@ public class FileChannelAndMappedByteBufferWriteWithMlockBenchmark {
         Options opt = new OptionsBuilder()
                 .include(FileChannelAndMappedByteBufferWriteWithMlockBenchmark.class.getSimpleName())
                 .forks(1)
-                .warmupIterations(2)
-                .measurementIterations(2)
+                .warmupIterations(5)
+                .measurementIterations(5)
                 .timeUnit(TimeUnit.SECONDS)
                 .timeout(TimeValue.hours(1))
                 .threads(1)
@@ -53,29 +54,36 @@ public class FileChannelAndMappedByteBufferWriteWithMlockBenchmark {
     }
 
     @Benchmark
-    public void mappedByteBufferWrite() throws IOException {
-        final ByteBuffer byteBuffer = ByteBuffer.allocate(this.bufferSize);
+    public void mappedByteBufferWrite() {
+        final ByteBuffer byteBuffer = ByteBuffer.allocateDirect(this.bufferSize);
 
         final ByteBuffer writeBuffer = this.mappedByteBuffer.slice();
 
-        for (int j = 0; j < this.fileSize; j += this.bufferSize) {
+        for (int j = this.bufferSize; j < this.fileSize; j += this.bufferSize) {
             for (int k = 0; k < this.bufferSize; k += Integer.BYTES) {
                 byteBuffer.putInt(k);
             }
 
             byteBuffer.flip();
-            writeBuffer.put(byteBuffer);
+            try {
+                writeBuffer.put(byteBuffer);
+            } catch (BufferOverflowException e) {
+                System.out.println(String.format("j: %d, bufferSize: %d", j, this.bufferSize));
+                System.out.println("" + byteBuffer.position() + " " + byteBuffer.capacity());
+                System.out.println("" + writeBuffer.position() + " " + writeBuffer.capacity());
+                throw e;
+            }
             byteBuffer.clear();
         }
     }
 
     @Benchmark
     public void fileChannelWrite() throws IOException {
-        final ByteBuffer byteBuffer = ByteBuffer.allocate(this.bufferSize);
+        final ByteBuffer byteBuffer = ByteBuffer.allocateDirect(this.bufferSize);
 
         this.fileChannel.position(0);
 
-        for (int j = 0; j < this.fileSize; j += this.bufferSize) {
+        for (int j = this.bufferSize; j < this.fileSize; j += this.bufferSize) {
             for (int k = 0; k < this.bufferSize; k += Integer.BYTES) {
                 byteBuffer.putInt(k);
             }
@@ -111,12 +119,12 @@ public class FileChannelAndMappedByteBufferWriteWithMlockBenchmark {
         final String filePath = this.buildFilePath();
         final File file = new File(filePath);
 
+        this.munlock();
+        this.fileChannel.close();
+
         if (!file.delete()) {
             System.out.println("无法清除文件：" + filePath);
         }
-
-        this.munlock();
-        this.fileChannel.close();
     }
 
     private String buildFilePath() {

@@ -21,6 +21,9 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * 和FileChannelAndMappedByteBufferReadBenchmark不同的地方在于，开始测试读取性能之前，使用mlock和madvise方法锁住并预读文件到内存
+ */
 @State(Scope.Benchmark)
 public class FileChannelAndMappedByteBufferReadWithMlockBenchmark {
     // 下面两个变量参考自CommitLog类的内部类CommitRealTimeService类的实现
@@ -28,8 +31,8 @@ public class FileChannelAndMappedByteBufferReadWithMlockBenchmark {
     private static final int commitLeastPages = 4;
     private static String directory = System.getProperty("java.io.tmpdir");
     // 每次测试的缓存区大小（字节）
-    @Param({"32", "64", "128", "256", "512", "1024", "2048", "4096", "8192", "" + commitLeastPages * OS_PAGE_SIZE})
-//    @Param({"" + commitLeastPages * OS_PAGE_SIZE})
+    @Param({"2048", "4096", "8192", "" + commitLeastPages * OS_PAGE_SIZE, "" + (commitLeastPages + 1) * OS_PAGE_SIZE})
+//    @Param({"" + commitLeastPages * OS_PAGE_SIZE, "" + (commitLeastPages + 1) * OS_PAGE_SIZE})
     private int bufferSize;
     // 测试1G文件
     private int fileSize = 1024 * 1024 * 1024;
@@ -41,8 +44,8 @@ public class FileChannelAndMappedByteBufferReadWithMlockBenchmark {
         Options opt = new OptionsBuilder()
                 .include(FileChannelAndMappedByteBufferReadWithMlockBenchmark.class.getSimpleName())
                 .forks(1)
-                .warmupIterations(2)
-                .measurementIterations(2)
+                .warmupIterations(5)
+                .measurementIterations(5)
                 .timeUnit(TimeUnit.SECONDS)
                 .timeout(TimeValue.hours(1))
                 .threads(1)
@@ -53,23 +56,34 @@ public class FileChannelAndMappedByteBufferReadWithMlockBenchmark {
     }
 
     @Benchmark
-    public void mappedByteBufferRead() throws IOException {
+    public void mappedByteBufferRead() {
         byte[] buffer = new byte[this.bufferSize];
 
         ByteBuffer readBuffer = this.mappedByteBuffer.slice();
 
-        for (int j = 0, k = 0; j < this.fileSize; j += this.bufferSize, k++) {
+        int lastRead = -1;
+        for (int j = this.bufferSize, k = 0; j < this.fileSize; j += this.bufferSize, k++) {
             readBuffer.position(k * this.bufferSize);
             ByteBuffer readBufferNew = readBuffer.slice();
             readBufferNew.limit(this.bufferSize);
 
-            readBuffer.get(buffer);
+            readBufferNew.get(buffer);
+            lastRead = j;
+        }
+
+        if (lastRead > 0 && lastRead < this.fileSize) {
+            readBuffer.position(lastRead);
+            ByteBuffer readBufferNew = readBuffer.slice();
+            readBufferNew.limit(this.fileSize - lastRead);
+
+            // 直接调用readBufferNew.get(buffer)会抛出BufferUnderflowException，因为readBufferNew的limit - position小于buffer的容量
+            readBufferNew.get(buffer, 0, this.fileSize - lastRead);
         }
     }
 
     @Benchmark
     public void fileChannelRead() throws IOException {
-        final ByteBuffer readBuffer = ByteBuffer.allocate(this.bufferSize);
+        final ByteBuffer readBuffer = ByteBuffer.allocateDirect(this.bufferSize);
 
         this.fileChannel.position(0);
 
@@ -104,12 +118,12 @@ public class FileChannelAndMappedByteBufferReadWithMlockBenchmark {
         final String filePath = buildFilePath();
         final File file = new File(filePath);
 
+        this.munlock();
+        this.fileChannel.close();
+
         if (!file.delete()) {
             System.out.println("无法清除文件：" + filePath);
         }
-
-        this.munlock();
-        this.fileChannel.close();
     }
 
     private String buildFilePath() {

@@ -21,8 +21,8 @@ public class FileChannelAndMappedByteBufferReadBenchmark {
     private static final int commitLeastPages = 4;
     private static String directory = System.getProperty("java.io.tmpdir");
     // 每次测试的缓存区大小（字节）
-    @Param({"128", "256", "512", "1024", "2048", "4096", "8192", "" + commitLeastPages * OS_PAGE_SIZE})
-//    @Param({"" + commitLeastPages * OS_PAGE_SIZE})
+    @Param({"2048", "4096", "8192", "" + commitLeastPages * OS_PAGE_SIZE, "" + (commitLeastPages + 1) * OS_PAGE_SIZE})
+//    @Param({"" + commitLeastPages * OS_PAGE_SIZE, "" + (commitLeastPages + 1) * OS_PAGE_SIZE})
     private int bufferSize;
     // 测试1G文件
     private int fileSize = 1024 * 1024 * 1024;
@@ -31,8 +31,8 @@ public class FileChannelAndMappedByteBufferReadBenchmark {
         Options opt = new OptionsBuilder()
                 .include(FileChannelAndMappedByteBufferReadBenchmark.class.getSimpleName())
                 .forks(1)
-                .warmupIterations(2)
-                .measurementIterations(2)
+                .warmupIterations(5)
+                .measurementIterations(5)
                 .timeUnit(TimeUnit.SECONDS)
                 .timeout(TimeValue.hours(1))
                 .threads(1)
@@ -49,26 +49,37 @@ public class FileChannelAndMappedByteBufferReadBenchmark {
         FileChannel fileChannel = new RandomAccessFile(file, "rw").getChannel();
         MappedByteBuffer mappedByteBuffer = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, this.fileSize);
         byte[] buffer = new byte[this.bufferSize];
+        ByteBuffer readBuffer = mappedByteBuffer.slice();
 
-        for (int j = 0, k = 0; j < this.fileSize; j += this.bufferSize, k++) {
-            ByteBuffer readBuffer = mappedByteBuffer.slice();
+        int lastRead = -1;
+        for (int j = this.bufferSize, k = 0; j < this.fileSize; j += this.bufferSize, k++) {
             readBuffer.position(k * this.bufferSize);
             ByteBuffer readBufferNew = readBuffer.slice();
             readBufferNew.limit(this.bufferSize);
 
-            readBuffer.get(buffer);
+            readBufferNew.get(buffer);
+            lastRead = j;
+        }
+
+        if (lastRead > 0 && lastRead < this.fileSize) {
+            readBuffer.position(lastRead);
+            ByteBuffer readBufferNew = readBuffer.slice();
+            readBufferNew.limit(this.fileSize - lastRead);
+
+            // 直接调用readBufferNew.get(buffer)会抛出BufferUnderflowException，因为readBufferNew的limit - position小于buffer的容量
+            readBufferNew.get(buffer, 0, this.fileSize - lastRead);
         }
 
         fileChannel.close();
     }
 
-    @Benchmark
+//    @Benchmark
     public void fileChannelRead() throws IOException {
         final String filePath = buildFilePath();
         final File file = new File(filePath);
         FileChannel fileChannel = new RandomAccessFile(file, "rw").getChannel();
         fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, this.fileSize);
-        final ByteBuffer readBuffer = ByteBuffer.allocate(this.bufferSize);
+        final ByteBuffer readBuffer = ByteBuffer.allocateDirect(this.bufferSize);
 
         while (fileChannel.read(readBuffer) != -1) {
             readBuffer.clear();
@@ -77,7 +88,7 @@ public class FileChannelAndMappedByteBufferReadBenchmark {
         fileChannel.close();
     }
 
-    @Benchmark
+//    @Benchmark
     public void randomAccessFileRead(Blackhole blackhole) throws IOException {
         final String filePath = buildFilePath();
         final File file = new File(filePath);
@@ -91,7 +102,7 @@ public class FileChannelAndMappedByteBufferReadBenchmark {
         randomAccessFile.close();
     }
 
-    @Benchmark
+//    @Benchmark
     public void fileOutputStreamRead(Blackhole blackhole) throws IOException {
         final String filePath = buildFilePath();
         final FileInputStream fileInputStream = new FileInputStream(filePath);
