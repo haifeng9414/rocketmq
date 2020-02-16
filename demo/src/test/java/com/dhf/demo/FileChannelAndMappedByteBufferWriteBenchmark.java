@@ -5,6 +5,7 @@ import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
+import org.openjdk.jmh.runner.options.TimeValue;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -17,19 +18,25 @@ import java.util.concurrent.TimeUnit;
 
 @State(Scope.Benchmark)
 public class FileChannelAndMappedByteBufferWriteBenchmark {
-    // 每次测试的文件数量
-    private static int count = 1;
+    // 下面两个变量参考自CommitLog类的内部类CommitRealTimeService类的实现
+    private static final int OS_PAGE_SIZE = 1024 * 4;
+    private static final int commitLeastPages = 4;
     private static String directory = System.getProperty("java.io.tmpdir");
-    // 每次测试的文件大小（字节）
-    @Param({"32", "64", "128", "256", "512", "1024", "2048", "4096", "8192"})
-    private int fileSize;
+    // 每次测试的缓存区大小（字节）
+//    @Param({"32", "64", "128", "256", "512", "1024", "2048", "4096", "8192", "" + commitLeastPages * OS_PAGE_SIZE})
+    @Param({"" + commitLeastPages * OS_PAGE_SIZE})
+    private int bufferSize;
+    // 测试1G文件
+    private int fileSize = 1024 * 1024 * 1024;
 
     public static void main(String[] args) throws RunnerException {
         Options opt = new OptionsBuilder()
                 .include(FileChannelAndMappedByteBufferWriteBenchmark.class.getSimpleName())
                 .forks(1)
-                .measurementIterations(1)
-                .timeUnit(TimeUnit.MILLISECONDS)
+                .warmupIterations(2)
+                .measurementIterations(2)
+                .timeUnit(TimeUnit.SECONDS)
+                .timeout(TimeValue.hours(1))
                 .threads(1)
                 .mode(Mode.SingleShotTime)
                 .build();
@@ -39,107 +46,124 @@ public class FileChannelAndMappedByteBufferWriteBenchmark {
 
     @Benchmark
     public void mappedByteBufferWrite() throws IOException {
-        for (int i = 0; i < count; i++) {
-            final String filePath = buildFilePath(i);
-            final File file = new File(filePath);
-            FileChannel fileChannel = new RandomAccessFile(file, "rw").getChannel();
-            MappedByteBuffer mappedByteBuffer = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, fileSize);
+        final String filePath = buildFilePath();
+        final File file = new File(filePath);
+        FileChannel fileChannel = new RandomAccessFile(file, "rw").getChannel();
+        MappedByteBuffer mappedByteBuffer = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, this.fileSize);
+        final ByteBuffer byteBuffer = ByteBuffer.allocate(this.bufferSize);
 
-            final ByteBuffer byteBuffer = ByteBuffer.allocate(fileSize);
-            for (int j = 0; j < this.fileSize; j += Integer.BYTES) {
-                byteBuffer.putInt(j);
+        final ByteBuffer writeBuffer = mappedByteBuffer.slice();
+
+        for (int j = 0; j < this.fileSize; j += this.bufferSize) {
+            // 填充缓冲区
+            for (int k = 0; k < this.bufferSize; k += Integer.BYTES) {
+                byteBuffer.putInt(k);
             }
-            byteBuffer.flip();
-            mappedByteBuffer.put(byteBuffer);
 
-            fileChannel.close();
+            byteBuffer.flip();
+            writeBuffer.put(byteBuffer);
+            byteBuffer.clear();
         }
+
+        fileChannel.close();
     }
 
     @Benchmark
     public void fileChannelWrite() throws IOException {
-        for (int i = 0; i < count; i++) {
-            final String filePath = buildFilePath(i);
-            final File file = new File(filePath);
-            FileChannel fileChannel = new RandomAccessFile(file, "rw").getChannel();
+        final String filePath = buildFilePath();
+        final File file = new File(filePath);
+        FileChannel fileChannel = new RandomAccessFile(file, "rw").getChannel();
+        // 这里不使用map和使用map性能差了好几倍，rocketmq中无论什么情况，都是fileChannel和对应的mappedByteBuffer一块创建
+        // 这里刚map完就能在操作系统中看到一个fileSize大小的文件
+        fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, this.fileSize);
+        final ByteBuffer byteBuffer = ByteBuffer.allocate(this.bufferSize);
 
-            final ByteBuffer byteBuffer = ByteBuffer.allocate(fileSize);
-            for (int j = 0; j < this.fileSize; j += Integer.BYTES) {
-                byteBuffer.putInt(j);
+        // 每次从文件起点开始，以bufferSize为缓冲区大小，写入数据直到文件被写满
+        fileChannel.position(0);
+
+        for (int j = 0; j < this.fileSize; j += this.bufferSize) {
+            // 填充缓冲区
+            for (int k = 0; k < this.bufferSize; k += Integer.BYTES) {
+                byteBuffer.putInt(k);
             }
+
             byteBuffer.flip();
             fileChannel.write(byteBuffer);
-
-            fileChannel.close();
+            byteBuffer.clear();
         }
+
+        fileChannel.close();
     }
 
     @Benchmark
     public void randomAccessFileWrite() throws IOException {
-        for (int i = 0; i < count; i++) {
-            final String filePath = buildFilePath(i);
-            final File file = new File(filePath);
-            final RandomAccessFile randomAccessFile = new RandomAccessFile(file, "rw");
+        final String filePath = buildFilePath();
+        final File file = new File(filePath);
+        final RandomAccessFile randomAccessFile = new RandomAccessFile(file, "rw");
+        final ByteBuffer byteBuffer = ByteBuffer.allocate(this.bufferSize);
 
-            final ByteBuffer byteBuffer = ByteBuffer.allocate(fileSize);
-            for (int j = 0; j < this.fileSize; j += Integer.BYTES) {
-                byteBuffer.putInt(j);
+        for (int j = 0; j < this.fileSize; j += this.bufferSize) {
+            // 填充缓冲区
+            for (int k = 0; k < this.bufferSize; k += Integer.BYTES) {
+                byteBuffer.putInt(k);
             }
+
             byteBuffer.flip();
             randomAccessFile.write(byteBuffer.array());
-
-            randomAccessFile.close();
+            byteBuffer.clear();
         }
+
+        randomAccessFile.close();
     }
 
     @Benchmark
     public void fileOutputStreamWrite() throws IOException {
-        for (int i = 0; i < count; i++) {
-            final String filePath = buildFilePath(i);
-            FileOutputStream fileOutputStream = new FileOutputStream(filePath);
+        final String filePath = buildFilePath();
+        FileOutputStream fileOutputStream = new FileOutputStream(filePath);
 
-            final ByteBuffer byteBuffer = ByteBuffer.allocate(fileSize);
-            for (int j = 0; j < this.fileSize; j += Integer.BYTES) {
-                byteBuffer.putInt(j);
+        final ByteBuffer byteBuffer = ByteBuffer.allocate(this.bufferSize);
+
+        for (int j = 0; j < this.fileSize; j += this.bufferSize) {
+            // 填充缓冲区
+            for (int k = 0; k < this.bufferSize; k += Integer.BYTES) {
+                byteBuffer.putInt(k);
             }
+
             byteBuffer.flip();
             fileOutputStream.write(byteBuffer.array());
-
-            fileOutputStream.close();
+            byteBuffer.clear();
         }
+
+        fileOutputStream.close();
     }
 
     @Setup
     public void prepare() throws IOException {
-        System.out.println("使用临时目录创建文件：" + directory);
+        final String filePath = buildFilePath();
+        final File file = new File(filePath);
 
-        for (int i = 0; i < count; i++) {
-            final String filePath = buildFilePath(i);
-            final File file = new File(filePath);
+        System.out.println("使用临时文件：" + filePath);
 
-            if (!file.exists() || file.delete()) {
-                if (!file.createNewFile()) {
-                    throw new RuntimeException("无法创建文件：" + filePath);
-                }
-            } else {
-                throw new RuntimeException("无法创建文件：" + filePath + "，无法删除已存在的文件");
+        if (!file.exists() || file.delete()) {
+            if (!file.createNewFile()) {
+                throw new RuntimeException("无法创建文件：" + filePath);
             }
+        } else {
+            throw new RuntimeException("无法创建文件：" + filePath + "，无法删除已存在的文件");
         }
     }
 
     @TearDown
     public void shutdown() {
-        for (int i = 0; i < count; i++) {
-            final String filePath = buildFilePath(i);
-            final File file = new File(filePath);
+        final String filePath = buildFilePath();
+        final File file = new File(filePath);
 
-            if (!file.delete()) {
-                System.out.println("无法清除文件：" + filePath);
-            }
+        if (!file.delete()) {
+            System.out.println("无法清除文件：" + filePath);
         }
     }
 
-    private String buildFilePath(int index) {
-        return directory + File.separator + "file" + index;
+    private String buildFilePath() {
+        return FileChannelAndMappedByteBufferWriteBenchmark.directory + File.separator + this.getClass().getSimpleName() + "BenchmarkFile";
     }
 }
