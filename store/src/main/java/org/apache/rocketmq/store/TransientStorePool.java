@@ -31,8 +31,11 @@ import sun.nio.ch.DirectBuffer;
 public class TransientStorePool {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
+    // poolSize表示创建的堆外内存数量，默认等于5
     private final int poolSize;
+    // 保存commitlog文件的大小，默认1G
     private final int fileSize;
+    // 保存可用的堆外内存
     private final Deque<ByteBuffer> availableBuffers;
     private final MessageStoreConfig storeConfig;
 
@@ -48,8 +51,10 @@ public class TransientStorePool {
      */
     public void init() {
         for (int i = 0; i < poolSize; i++) {
+            // 申请堆外内存
             ByteBuffer byteBuffer = ByteBuffer.allocateDirect(fileSize);
 
+            // mlock的作用在MappedFile类的mlock方法中介绍了
             final long address = ((DirectBuffer) byteBuffer).address();
             Pointer pointer = new Pointer(address);
             LibC.INSTANCE.mlock(pointer, new NativeLong(fileSize));
