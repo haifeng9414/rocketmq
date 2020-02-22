@@ -1015,7 +1015,7 @@ public class CommitLog {
                         // 当result为false时，说明真正执行了commit，这里更新上次commit的时间
                         this.lastCommitTimestamp = end; // result = false means some data committed.
                         //now wake up flush thread.
-                        // 唤醒执行flush操作的线程，如果是同步刷盘，则唤醒的是GroupCommitService，否则是FlushRealTimeService
+                        // 唤醒执行flush操作的线程，也就是FlushRealTimeService
                         flushCommitLogService.wakeup();
                     }
 
