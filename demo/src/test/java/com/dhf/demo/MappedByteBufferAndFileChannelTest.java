@@ -55,13 +55,13 @@ public class MappedByteBufferAndFileChannelTest {
         final int size = readBuffer.getInt();
         byte[] bytes = new byte[size];
         readBuffer.get(bytes, 0, size);
-        System.out.println("read from file channel: " + new String(bytes, Charset.defaultCharset()));
+        System.out.println("read from fileChannel: " + new String(bytes, Charset.defaultCharset()));
     }
 
     private void readFromMappedByteBuffer(MappedByteBuffer mappedByteBuffer) {
         final int size = mappedByteBuffer.getInt();
         byte[] bytes = new byte[size];
         mappedByteBuffer.get(bytes, 0, size);
-        System.out.println("read from file channel: " + new String(bytes, Charset.defaultCharset()));
+        System.out.println("read from mappedByteBuffer: " + new String(bytes, Charset.defaultCharset()));
     }
 }
