@@ -708,9 +708,11 @@ public class CommitLog {
         // Synchronization flush
         if (FlushDiskType.SYNC_FLUSH == this.defaultMessageStore.getMessageStoreConfig().getFlushDiskType()) {
             final GroupCommitService service = (GroupCommitService) this.flushCommitLogService;
+            // 是否需要等待数据落盘才认为消息发送成功，默认为true
             if (messageExt.isWaitStoreMsgOK()) {
                 GroupCommitRequest request = new GroupCommitRequest(result.getWroteOffset() + result.getWroteBytes());
                 service.putRequest(request);
+                // 同步等待刷盘完成
                 boolean flushOK = request.waitForFlush(this.defaultMessageStore.getMessageStoreConfig().getSyncFlushTimeout());
                 if (!flushOK) {
                     log.error("do groupcommit, wait for flush failed, topic: " + messageExt.getTopic() + " tags: " + messageExt.getTags()
@@ -718,11 +720,14 @@ public class CommitLog {
                     putMessageResult.setPutMessageStatus(PutMessageStatus.FLUSH_DISK_TIMEOUT);
                 }
             } else {
+                // 如果不需要等待则直接唤醒GroupCommitService，GroupCommitService会直接执行flush操作
                 service.wakeup();
             }
         }
         // Asynchronous flush
         else {
+            // 异步刷盘的情况下如果开启"读写分离"模式则唤醒commitLogService，commitLogService在commit之后会唤醒flushCommitLogService
+            // 执行flush，否则直接唤醒flushCommitLogService
             if (!this.defaultMessageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
                 flushCommitLogService.wakeup();
             } else {
@@ -1022,7 +1027,7 @@ public class CommitLog {
                     if (end - begin > 500) {
                         log.info("Commit data to file costs {} ms", end - begin);
                     }
-                    // 等待被唤醒，或等待interval的时间自动唤醒
+                    // 等待被唤醒（handleDiskFlush方法会执行唤醒操作），或等待interval的时间自动唤醒
                     this.waitForRunning(interval);
                 } catch (Throwable e) {
                     CommitLog.log.error(this.getServiceName() + " service has exception. ", e);
@@ -1047,7 +1052,7 @@ public class CommitLog {
             CommitLog.log.info(this.getServiceName() + " service started");
 
             while (!this.isStopped()) {
-                // 是否以固定的时间执行flush
+                // 是否以固定的时间执行flush，默认为false
                 boolean flushCommitLogTimed = CommitLog.this.defaultMessageStore.getMessageStoreConfig().isFlushCommitLogTimed();
 
                 // flush的时间间隔
@@ -1167,10 +1172,14 @@ public class CommitLog {
         private volatile List<GroupCommitRequest> requestsRead = new ArrayList<GroupCommitRequest>();
 
         public synchronized void putRequest(final GroupCommitRequest request) {
+            // requestsWrite对应的是一个刷盘请求
             synchronized (this.requestsWrite) {
                 this.requestsWrite.add(request);
             }
             if (hasNotified.compareAndSet(false, true)) {
+                // 唤醒在run方法的waitForRunning处等待的线程，以执行doCommit方法，注意waitForRunning方法
+                // 在waitPoint.await等待完成后，会在finally中执行onWaitEnd方法，当前类的onWaitEnd方法会执行
+                // swapRequests方法
                 waitPoint.countDown(); // notify
             }
         }
@@ -1184,10 +1193,12 @@ public class CommitLog {
         private void doCommit() {
             synchronized (this.requestsRead) {
                 if (!this.requestsRead.isEmpty()) {
+                    // 遍历所有的flush请求
                     for (GroupCommitRequest req : this.requestsRead) {
                         // There may be a message in the next file, so a maximum of
                         // two times the flush
                         boolean flushOK = false;
+                        // 最多重试两次
                         for (int i = 0; i < 2 && !flushOK; i++) {
                             flushOK = CommitLog.this.mappedFileQueue.getFlushedWhere() >= req.getNextOffset();
 
@@ -1196,9 +1207,11 @@ public class CommitLog {
                             }
                         }
 
+                        // 唤醒正在handleDiskFlush方法的waitForFlush处等待的线程
                         req.wakeupCustomer(flushOK);
                     }
 
+                    // 更新flush成功的时间
                     long storeTimestamp = CommitLog.this.mappedFileQueue.getStoreTimestamp();
                     if (storeTimestamp > 0) {
                         CommitLog.this.defaultMessageStore.getStoreCheckpoint().setPhysicMsgTimestamp(storeTimestamp);
@@ -1208,6 +1221,8 @@ public class CommitLog {
                 } else {
                     // Because of individual messages is set to not sync flush, it
                     // will come to this process
+                    // 如果handleDiskFlush方法的messageExt.isWaitStoreMsgOK()判断为false，表示不需要等待flush完成，handleDiskFlush
+                    // 方法会直接唤醒GroupCommitService，此时requestsRead中没有flush请求，这里就直接执行flush操作
                     CommitLog.this.mappedFileQueue.flush(0);
                 }
             }
@@ -1244,6 +1259,9 @@ public class CommitLog {
 
         @Override
         protected void onWaitEnd() {
+            // 交换requestsWrite和requestsRead，这么做的目的是避免产生锁竞争，可以发现putRequest方法会锁住requestsWrite并向其写入数据，
+            // 而doCommit方法会锁住requestsRead并从其中读取数据，这样使用两个list，就能够实现doCommit方法执行时其他线程还能够执行
+            // putRequest方法向requestsWrite写入数据
             this.swapRequests();
         }
 
