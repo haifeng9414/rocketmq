@@ -53,6 +53,7 @@ public class MappedFileQueue {
     // 当前commit到的位置
     private long committedWhere = 0;
 
+    // 保存上次flush成功的时间
     private volatile long storeTimestamp = 0;
 
     public MappedFileQueue(final String storePath, int mappedFileSize,

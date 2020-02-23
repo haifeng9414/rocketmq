@@ -298,7 +298,7 @@ class CommitRealTimeService extends FlushCommitLogService {
                 if (end - begin > 500) {
                     log.info("Commit data to file costs {} ms", end - begin);
                 }
-                // 等待被唤醒，或等待interval的时间自动唤醒
+                // 等待被唤醒（handleDiskFlush方法会执行唤醒操作），或等待interval的时间自动唤醒
                 this.waitForRunning(interval);
             } catch (Throwable e) {
                 CommitLog.log.error(this.getServiceName() + " service has exception. ", e);
