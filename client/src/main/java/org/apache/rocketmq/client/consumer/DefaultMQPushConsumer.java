@@ -68,6 +68,8 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     /**
      * Internal implementation. Most of the functions herein are delegated to it.
      */
+    // 和DefaultMQProducer的实现方式类似，DefaultMQPushConsumer在实现MQPushConsumer接口的方法时实际上是调用的这里的defaultMQPushConsumerImpl
+    // 对象实现的
     protected final transient DefaultMQPushConsumerImpl defaultMQPushConsumerImpl;
 
     /**
@@ -168,7 +170,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     /**
      * Subscription relationship
      */
-    // 保存订阅关系
+    // 保存topic和订阅的标签的关系
     private Map<String /* topic */, String /* sub expression */> subscription = new HashMap<String, String>();
 
     /**
@@ -386,7 +388,9 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
         AllocateMessageQueueStrategy allocateMessageQueueStrategy) {
         this.consumerGroup = consumerGroup;
         this.namespace = namespace;
+        // 负载均衡算法，默认为取模平均
         this.allocateMessageQueueStrategy = allocateMessageQueueStrategy;
+        // 真正实现了
         defaultMQPushConsumerImpl = new DefaultMQPushConsumerImpl(this, rpcHook);
     }
 
@@ -454,6 +458,10 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
             }
         }
     }
+
+    /*
+    下面就是getter/setter和使用DefaultMQPushConsumerImpl对象实现的MQPushConsumer接口的方法
+     */
 
     /**
      * This method will be removed in a certain version after April 5, 2020, so please do not use this method.
@@ -745,6 +753,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      */
     @Override
     public void start() throws MQClientException {
+        // 以namespace%consumerGroup的格式创建新的consumerGroup
         setConsumerGroup(NamespaceUtil.wrapNamespace(this.getNamespace(), this.consumerGroup));
         this.defaultMQPushConsumerImpl.start();
         if (null != traceDispatcher) {
