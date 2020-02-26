@@ -258,7 +258,8 @@ public class MQClientInstance {
                     // rebalanceService是个无限循环的线程，以固定间隔调用当前类的doRebalance方法
                     this.rebalanceService.start();
                     // Start push service
-                    // 启动内置生产者
+                    // 启动productGroup为MixAll.CLIENT_INNER_PRODUCER_GROUP的内置生产者，注意这里传入的startFactory参数为false，
+                    // 因为内置生产者不需要启动上面这几个线程和定时任务
                     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
                     log.info("the client factory [{}] start OK", this.clientId);
                     this.serviceState = ServiceState.RUNNING;
@@ -314,6 +315,7 @@ public class MQClientInstance {
             }
         }, 1000, this.clientConfig.getHeartbeatBrokerInterval(), TimeUnit.MILLISECONDS);
 
+        // 定时持久化消费进度
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -674,8 +676,10 @@ public class MQClientInstance {
                         // 判断新获取到的路由信息和之前的路由信息是否有变化
                         boolean changed = topicRouteDataIsChange(old, topicRouteData);
                         if (!changed) {
-                            // 对于生产者，调用DefaultMQProducerImpl的isPublishTopicNeedUpdate方法，判断老的路由信息中的队列是否
-                            // 为空
+                            // 对于生产者，调用DefaultMQProducerImpl的isPublishTopicNeedUpdate方法，判断老的路由信息中指定topic
+                            // 的队列是否为空
+                            // 对于消费者，由于路由信息是保存在rebalanceImpl的，所以是判断rebalanceImpl的路由信息中指定topic
+                            // 的队列是否为空
                             changed = this.isNeedUpdateTopicRouteInfo(topic);
                         } else {
                             log.info("the topic[{}] route info changed, old[{}] ,new[{}]", topic, old, topicRouteData);
@@ -709,7 +713,8 @@ public class MQClientInstance {
 
                             // Update sub info
                             {
-                                // subscribeInfo对象包含了所有可读队列对应的MessageQueue对象
+                                // 遍历当前topicRouteData对象的QueueData，为每个QueueData对象创建readQueueNums个MessageQueue对象，
+                                // 并保存到TopicPublishInfo对象中，即TopicPublishInfo对象包含了所有可读队列对应的MessageQueue对象
                                 Set<MessageQueue> subscribeInfo = topicRouteData2TopicSubscribeInfo(topic, topicRouteData);
                                 Iterator<Entry<String, MQConsumerInner>> it = this.consumerTable.entrySet().iterator();
                                 while (it.hasNext()) {
@@ -1133,6 +1138,7 @@ public class MQClientInstance {
     }
 
     public List<String> findConsumerIdList(final String topic, final String group) {
+        // 从所有存在指定topic的broker中随机选一个
         String brokerAddr = this.findBrokerAddrByTopic(topic);
         if (null == brokerAddr) {
             this.updateTopicRouteInfoFromNameServer(topic);
@@ -1141,6 +1147,8 @@ public class MQClientInstance {
 
         if (null != brokerAddr) {
             try {
+                // 向broker发送RequestCode.GET_CONSUMER_LIST_BY_GROUP请求获取所有consumerGroup等于这里的group的消费者客户端的
+                // id
                 return this.mQClientAPIImpl.getConsumerIdListByGroup(brokerAddr, group, 3000);
             } catch (Exception e) {
                 log.warn("getConsumerIdListByGroup exception, " + brokerAddr + " " + group, e);
