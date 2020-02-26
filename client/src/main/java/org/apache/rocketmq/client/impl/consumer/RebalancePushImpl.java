@@ -157,6 +157,7 @@ public class RebalancePushImpl extends RebalanceImpl {
                         result = 0L;
                     } else {
                         try {
+                            // mq是某个broker中的consumeQueue，这里获取该mq对应的consumeQueue已经保存的消息consume数量
                             result = this.mQClientFactory.getMQAdminImpl().maxOffset(mq);
                         } catch (MQClientException e) {
                             result = -1;

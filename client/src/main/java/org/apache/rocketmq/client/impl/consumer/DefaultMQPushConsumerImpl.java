@@ -106,6 +106,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     private MQClientInstance mQClientFactory;
     private PullAPIWrapper pullAPIWrapper;
     private volatile boolean pause = false;
+    // 是否是并发消费，顺序消费消息时consumeOrderly为false
     private boolean consumeOrderly = false;
     private MessageListener messageListenerInner;
     private OffsetStore offsetStore;
@@ -221,13 +222,16 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
         pullRequest.getProcessQueue().setLastPullTimestamp(System.currentTimeMillis());
 
         try {
+            // 确保当前DefaultMQPushConsumerImp对象的serviceState等于ServiceState.RUNNING
             this.makeSureStateOK();
         } catch (MQClientException e) {
             log.warn("pullMessage exception, consumer state not ok", e);
+            // 在状态不正常的情况下，延迟一段时间再将pullRequest对象添加到pullRequestQueue，即延迟一段时间后再执行这里的pullMessage方法
             this.executePullRequestLater(pullRequest, pullTimeDelayMillsWhenException);
             return;
         }
 
+        // 同上，在consumer暂停的情况下延迟一段时间再执行pullMessage方法
         if (this.isPause()) {
             log.warn("consumer was paused, execute pull request later. instanceName={}, group={}", this.defaultMQPushConsumer.getInstanceName(), this.defaultMQPushConsumer.getConsumerGroup());
             this.executePullRequestLater(pullRequest, PULL_TIME_DELAY_MILLS_WHEN_SUSPEND);
@@ -237,8 +241,10 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
         long cachedMessageCount = processQueue.getMsgCount().get();
         long cachedMessageSizeInMiB = processQueue.getMsgSize().get() / (1024 * 1024);
 
+        // 如果当前等待消费的消息数量大于阈值，则等待50ms再执行pullMessage方法
         if (cachedMessageCount > this.defaultMQPushConsumer.getPullThresholdForQueue()) {
             this.executePullRequestLater(pullRequest, PULL_TIME_DELAY_MILLS_WHEN_FLOW_CONTROL);
+            // 超过阈值次数达到1000记一次日志
             if ((queueFlowControlTimes++ % 1000) == 0) {
                 log.warn(
                     "the cached message count exceeds the threshold {}, so do flow control, minOffset={}, maxOffset={}, count={}, size={} MiB, pullRequest={}, flowControlTimes={}",
@@ -247,8 +253,10 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
             return;
         }
 
+        // 如果当前等待消费的消息总大小大于阈值，则等待50ms再执行pullMessage方法
         if (cachedMessageSizeInMiB > this.defaultMQPushConsumer.getPullThresholdSizeForQueue()) {
             this.executePullRequestLater(pullRequest, PULL_TIME_DELAY_MILLS_WHEN_FLOW_CONTROL);
+            // 超过阈值次数达到1000记一次日志
             if ((queueFlowControlTimes++ % 1000) == 0) {
                 log.warn(
                     "the cached message size exceeds the threshold {} MiB, so do flow control, minOffset={}, maxOffset={}, count={}, size={} MiB, pullRequest={}, flowControlTimes={}",
@@ -611,7 +619,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                             this.offsetStore = new LocalFileOffsetStore(this.mQClientFactory, this.defaultMQPushConsumer.getConsumerGroup());
                             break;
                         case CLUSTERING:
-                            // 广播模式offset保存在broker
+                            // 集群模式offset保存在broker
                             this.offsetStore = new RemoteBrokerOffsetStore(this.mQClientFactory, this.defaultMQPushConsumer.getConsumerGroup());
                             break;
                         default:
@@ -633,11 +641,14 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                         new ConsumeMessageConcurrentlyService(this, (MessageListenerConcurrently) this.getMessageListenerInner());
                 }
 
-
+                // 启动定时任务定时调用consumeMessageService的cleanExpireMsg方法
                 this.consumeMessageService.start();
 
+                // 绑定consumerGroup和当前DefaultMQPushConsumerImpl对象的关系
                 boolean registerOK = mQClientFactory.registerConsumer(this.defaultMQPushConsumer.getConsumerGroup(), this);
                 if (!registerOK) {
+                    // 一个rocketmq进程内consumerGroup和DefaultMQPushConsumerImpl对象一一对应，如果存在多个DefaultMQPushConsumerImpl
+                    // 对象对应一个consumerGroup则报错
                     this.serviceState = ServiceState.CREATE_JUST;
                     this.consumeMessageService.shutdown();
                     throw new MQClientException("The consumer group[" + this.defaultMQPushConsumer.getConsumerGroup()
@@ -645,6 +656,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                         null);
                 }
 
+                // 启动netty、拉取消息的线程、负载均衡线程、各种定时任务
                 mQClientFactory.start();
                 log.info("the consumer [{}] start OK.", this.defaultMQPushConsumer.getConsumerGroup());
                 this.serviceState = ServiceState.RUNNING;
@@ -660,10 +672,14 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 break;
         }
 
-        // 从namesrv更新topic路由信息
+        // 从namesrv更新topic路由信息，并将路由信息保存到rebalanceImpl的topicSubscribeInfoTable属性
         this.updateTopicSubscribeInfoWhenSubscriptionChanged();
+        // 遍历所有的SubscriptionData订阅配置，如果订阅时设置了tag，则根据topic获取TopicRouteData，并随机从TopicRouteData中选择一个
+        // broker发送RequestCode.CHECK_CLIENT_CONFIG请求检查broker是否支持tag表达式
         this.mQClientFactory.checkClientInBroker();
+        // 向所有broker发送心跳
         this.mQClientFactory.sendHeartbeatToAllBrokerWithLock();
+        // 立即唤醒rebalanceService使其执行this.mqClientFactory.doRebalance()语句
         this.mQClientFactory.rebalanceImmediately();
     }
 
