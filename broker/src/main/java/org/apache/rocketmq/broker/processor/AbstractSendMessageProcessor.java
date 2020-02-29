@@ -16,16 +16,16 @@
  */
 package org.apache.rocketmq.broker.processor;
 
+import io.netty.channel.ChannelHandlerContext;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-
-import io.netty.channel.ChannelHandlerContext;
 import org.apache.rocketmq.broker.BrokerController;
 import org.apache.rocketmq.broker.mqtrace.SendMessageContext;
 import org.apache.rocketmq.broker.mqtrace.SendMessageHook;
+import org.apache.rocketmq.broker.topic.TopicValidator;
 import org.apache.rocketmq.common.MixAll;
 import org.apache.rocketmq.common.TopicConfig;
 import org.apache.rocketmq.common.TopicFilterType;
@@ -187,12 +187,9 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
                 + "] sending message is forbidden");
             return response;
         }
+
         // 如果topic的名字和系统保留的topic：TBW102名字相等则返回error
-        if (!this.brokerController.getTopicConfigManager().isTopicCanSendMessage(requestHeader.getTopic())) {
-            String errorMsg = "the topic[" + requestHeader.getTopic() + "] is conflict with system reserved words.";
-            log.warn(errorMsg);
-            response.setCode(ResponseCode.SYSTEM_ERROR);
-            response.setRemark(errorMsg);
+        if (!TopicValidator.validateTopic(requestHeader.getTopic(), response)) {
             return response;
         }
 
