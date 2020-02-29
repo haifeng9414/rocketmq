@@ -606,7 +606,7 @@ public class CommitLog {
             msg.setStoreHostAddressV6Flag();
         }
 
-        long eclipsedTimeInLock = 0;
+        long elapsedTimeInLock = 0;
 
         MappedFile unlockMappedFile = null;
         // MappedFile实际上就是某个commitlog或consumeQueue文件，这里获取最新的commitlog文件
@@ -672,14 +672,14 @@ public class CommitLog {
             }
 
             // 计算消耗的时间
-            eclipsedTimeInLock = this.defaultMessageStore.getSystemClock().now() - beginLockTimestamp;
+            elapsedTimeInLock = this.defaultMessageStore.getSystemClock().now() - beginLockTimestamp;
             beginTimeInLock = 0;
         } finally {
             putMessageLock.unlock();
         }
 
-        if (eclipsedTimeInLock > 500) {
-            log.warn("[NOTIFYME]putMessage in lock cost time(ms)={}, bodyLength={} AppendMessageResult={}", eclipsedTimeInLock, msg.getBody().length, result);
+        if (elapsedTimeInLock > 500) {
+            log.warn("[NOTIFYME]putMessage in lock cost time(ms)={}, bodyLength={} AppendMessageResult={}", elapsedTimeInLock, msg.getBody().length, result);
         }
 
         // 如果附加消息成功并且没有创建新的commitlog文件则unlockMappedFile为null，否则为上一个commitlog文件，这里执行和mlock相反
@@ -788,7 +788,7 @@ public class CommitLog {
             messageExtBatch.setStoreHostAddressV6Flag();
         }
 
-        long eclipsedTimeInLock = 0;
+        long elapsedTimeInLock = 0;
         MappedFile unlockMappedFile = null;
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
 
@@ -843,14 +843,14 @@ public class CommitLog {
                     return new PutMessageResult(PutMessageStatus.UNKNOWN_ERROR, result);
             }
 
-            eclipsedTimeInLock = this.defaultMessageStore.getSystemClock().now() - beginLockTimestamp;
+            elapsedTimeInLock = this.defaultMessageStore.getSystemClock().now() - beginLockTimestamp;
             beginTimeInLock = 0;
         } finally {
             putMessageLock.unlock();
         }
 
-        if (eclipsedTimeInLock > 500) {
-            log.warn("[NOTIFYME]putMessages in lock cost time(ms)={}, bodyLength={} AppendMessageResult={}", eclipsedTimeInLock, messageExtBatch.getBody().length, result);
+        if (elapsedTimeInLock > 500) {
+            log.warn("[NOTIFYME]putMessages in lock cost time(ms)={}, bodyLength={} AppendMessageResult={}", elapsedTimeInLock, messageExtBatch.getBody().length, result);
         }
 
         if (null != unlockMappedFile && this.defaultMessageStore.getMessageStoreConfig().isWarmMapedFileEnable()) {
