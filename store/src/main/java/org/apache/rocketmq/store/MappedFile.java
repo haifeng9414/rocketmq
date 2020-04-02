@@ -349,6 +349,13 @@ public class MappedFile extends ReferenceResource {
 
         // All dirty data has been committed to FileChannel.
         // 如果committedPosition和fileSize相等，说明当前MappedFile文件已经被写完了，此时将writeBuffer还给buffer池
+        // 注意这里的this.fileSize == this.committedPosition.get()的判断，当开启读写分离后，将数据写入MappedFile对象
+        // 后MappedFile对象的wrotePosition会更新，但是实际上数据是被写入到了writeBuffer，而CommitLog文件的putMessage方法
+        // 会调用MappedFile对象的isFull方法判断MappedFile对象是否写满了，如果满了会创建新的MappedFile对象，新的MappedFile对象
+        // 又会从transientStorePool中申请一个writeBuffer。之前被判断已经写满的MappedFile对象的writeBuffer可能还没有将数据commit（
+        // 需要等CommitRealTimeService线程执行commit），所以此时被判断写满的MappedFile对象的committedPosition还不等于
+        // this.fileSize，则其writeBuffer还不能归还，这就是TransientStorePool默认初始化5个ByteBuffer的原因，没commit操作一点时间，
+        // 等到commit完后才能归还。
         if (writeBuffer != null && this.transientStorePool != null && this.fileSize == this.committedPosition.get()) {
             this.transientStorePool.returnBuffer(writeBuffer);
             this.writeBuffer = null;

@@ -66,6 +66,7 @@ public DefaultMessageStore(final MessageStoreConfig messageStoreConfig, final Br
     // 略
 }
 ```
+
 这里再看`TransientStorePool`类的实现：
 ```java
 public class TransientStorePool {
