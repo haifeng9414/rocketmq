@@ -178,7 +178,7 @@ public int commit(final int commitLeastPages) {
 }
 ```
 
-关于`MappedFile`对象的`commit()`方法的调用实际，已经在笔记[如何实现消息存储](如何实现消息存储.md)中关于`CommitRealTimeService`类的实现分析了，这里不再赘述。
+关于`MappedFile`对象的`commit()`方法的调用时机，已经在笔记[如何实现消息存储](如何实现消息存储.md)中关于`CommitRealTimeService`类的实现分析了，这里不再赘述。
 
 下面再看开启“读写分离”后，`MappedFile`对象是如何写入消息的。`MappedFile`对象写入消息的方法是`appendMessage()`方法：
 ```java
@@ -272,12 +272,12 @@ class CommitRealTimeService extends FlushCommitLogService {
             // 被commit，直接执行commit
             int commitDataLeastPages = CommitLog.this.defaultMessageStore.getMessageStoreConfig().getCommitCommitLogLeastPages();
 
-            // 多少时间忽略未被commit的数据量执行一次commit
+            // 多少时间忽略未被commit的数据量强制执行一次commit
             int commitDataThoroughInterval =
                 CommitLog.this.defaultMessageStore.getMessageStoreConfig().getCommitCommitLogThoroughInterval();
 
             long begin = System.currentTimeMillis();
-            // 如果到了需要执行完整的commit的时间，设置commitDataLeastPages为0即可
+            // 如果到了需要执行commit的时间，设置commitDataLeastPages为0即可
             if (begin >= (this.lastCommitTimestamp + commitDataThoroughInterval)) {
                 this.lastCommitTimestamp = begin;
                 commitDataLeastPages = 0;
@@ -490,13 +490,15 @@ FileChannelAndMappedByteBufferWriteWithMlockBenchmark.mappedByteBufferWrite     
 FileChannelAndMappedByteBufferWriteWithMlockBenchmark.mappedByteBufferWrite         20480    ss    5  0.384 ± 0.122   s/op
 ```
 
-结果显示，无论一次写入的数据量（bufferSize）是多少，始终是`MappedByteBuffer`的性能高于`FileChannel`，特别是在写入小的数据时，性能差距好几倍。当然rocketmq也做了优化，也就是上面`CommitRealTimeService`对象的`run()`方法中`commitDataLeastPages`变量限制了默认在不考虑其他配置影响的情况下（不考虑`commitDataThoroughInterval`变量的影响），一次commit的数据量不会小于4 * 4K，这样使用`FileChannel`写入数据的时间和使用`MappedByteBuffer`写入数据的时间不会相差太大，但是为什么在耗时相对比较长的情况下还是使用`FileChannel`写入commit的数据呢？原因如下：
+结果显示，无论一次写入的数据量（bufferSize）是多少，始终是`MappedByteBuffer`的性能高于`FileChannel`，特别是在写入小的数据时，性能差距好几倍。当然rocketmq也做了优化，也就是上面`CommitRealTimeService`对象的`run()`方法中`commitDataLeastPages`变量限制了默认在不考虑其他配置影响的情况下（不考虑`commitDataThoroughInterval`变量的影响），一次commit的数据量不会小于4 * 4K，这样使用`FileChannel`写入数据的时间和使用`MappedByteBuffer`写入数据的时间不会相差太大，可能是我测试时的机器配置问题或者测试代码的逻辑问题导致测试结果和网上的测试的结果不一样，不过使用`FileChannel`写入数据而不是`MappedByteBuffer`的目的应该还是提高commit时的性能的。
+
+在了解”读写分离“模式的实现远离后，再总结下开启“读写分离“模式的好处：
 ```
 通常有如下两种方式进行读写：
 第一种，mmap+pageCache的方式，读写消息都走的是pageCache，这样读写都在pagecache里不可避免会有锁的问题，在并发的读写操作情况下，会出现缺页中断降低，内存加锁，污染页的回写。
 第二种，DirectByteBuffer(堆外内存)+pageCache的两层架构方式，这样可以实现读写消息分离，写入消息时候写到的是DirectByteBuffer（堆外内存），读消息走的是pageCache（DirectByteBuffer是两步刷盘，一步是刷到pageCache，还有一步是刷到磁盘文件中），带来的好处就是，避免了内存操作的很多容易堵的地方，降低了时延，比如说缺页中断降低，内存加锁，污染页的回写。
 ```
 
-rocketmq在开启“读写分离”后执行的就是第二种读写方式，才疏学浅不知道为什么使用DirectByteBuffer数据还是会经过pageCache的情况下，还能避免缺页中断降低，内存加锁，污染页的回写，上面是rocketmq社区贡献者胡宗棠关于transientStorePoolEnable引入意图的解释。
+rocketmq在开启“读写分离”后执行的就是第二种读写方式，开启“读写分离”模式后，写入的数据是先写入`DirectByteBuffer`，再由定时任务执行commit将数据一次性写入`FileChannel`，相比于不开启“读写分离”模式时数据直接写入pageCache，rocketmq的这种实现减少了数据直接写入pageCache的次数，也就减少了pageCache的并发操作，从而减少了出现缺页中断、内存加锁，污染页回写等问题的次数。
 
 以上就是transientStorePoolEnable属性的作用。
