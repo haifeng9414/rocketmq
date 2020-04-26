@@ -79,9 +79,13 @@ public class MQAdminImpl {
         createTopic(key, newTopic, queueNum, 0);
     }
 
+    // 以key为源topic，获取其路由信息，并在找到的broker中创建newTopic这个topic
+    // 关于topicSysFlag，https://github.com/apache/rocketmq/issues/1712的解释：
+    // This is a legacy design, you can ignore it.
     public void createTopic(String key, String newTopic, int queueNum, int topicSysFlag) throws MQClientException {
         try {
             Validators.checkTopic(newTopic);
+            // 以key作为topic，获取路由信息
             TopicRouteData topicRouteData = this.mQClientFactory.getMQClientAPIImpl().getTopicRouteInfoFromNameServer(key, timeoutMillis);
             List<BrokerData> brokerDataList = topicRouteData.getBrokerDatas();
             if (brokerDataList != null && !brokerDataList.isEmpty()) {
@@ -92,7 +96,9 @@ public class MQAdminImpl {
 
                 StringBuilder orderTopicString = new StringBuilder();
 
+                // 遍历broker尝试创建topic
                 for (BrokerData brokerData : brokerDataList) {
+                    // 获取master broker地址
                     String addr = brokerData.getBrokerAddrs().get(MixAll.MASTER_ID);
                     if (addr != null) {
                         TopicConfig topicConfig = new TopicConfig(newTopic);
@@ -101,6 +107,7 @@ public class MQAdminImpl {
                         topicConfig.setTopicSysFlag(topicSysFlag);
 
                         boolean createOK = false;
+                        // 尝试在指定broker下创建topic
                         for (int i = 0; i < 5; i++) {
                             try {
                                 this.mQClientFactory.getMQClientAPIImpl().createTopic(addr, key, topicConfig, timeoutMillis);
@@ -109,6 +116,7 @@ public class MQAdminImpl {
                                 break;
                             } catch (Exception e) {
                                 if (4 == i) {
+                                    // 如果都失败了只是记录下异常
                                     exception = new MQClientException("create topic to broker exception", e);
                                 }
                             }
@@ -123,6 +131,7 @@ public class MQAdminImpl {
                     }
                 }
 
+                // 如果一次都不成功则直接报错，如果至少一次成功就不抛出异常，说明当前方法创建topic并不是完全可靠的
                 if (exception != null && !createOKAtLeastOnce) {
                     throw exception;
                 }
@@ -208,6 +217,7 @@ public class MQAdminImpl {
 
         if (brokerAddr != null) {
             try {
+                // 发送GET_MAX_OFFSET RPC获取指定ConsumeQueue下消息的最大位移
                 return this.mQClientFactory.getMQClientAPIImpl().getMaxOffset(brokerAddr, mq.getTopic(), mq.getQueueId(), timeoutMillis);
             } catch (Exception e) {
                 throw new MQClientException("Invoke Broker[" + brokerAddr + "] exception", e);
@@ -226,6 +236,7 @@ public class MQAdminImpl {
 
         if (brokerAddr != null) {
             try {
+                // 发送GET_MIN_OFFSET RPC获取指定ConsumeQueue下消息的最小位移
                 return this.mQClientFactory.getMQClientAPIImpl().getMinOffset(brokerAddr, mq.getTopic(), mq.getQueueId(), timeoutMillis);
             } catch (Exception e) {
                 throw new MQClientException("Invoke Broker[" + brokerAddr + "] exception", e);
@@ -236,6 +247,7 @@ public class MQAdminImpl {
     }
 
     public long earliestMsgStoreTime(MessageQueue mq) throws MQClientException {
+        // 获取指定name的master broker
         String brokerAddr = this.mQClientFactory.findBrokerAddressInPublish(mq.getBrokerName());
         if (null == brokerAddr) {
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(mq.getTopic());
@@ -244,6 +256,7 @@ public class MQAdminImpl {
 
         if (brokerAddr != null) {
             try {
+                // 发送GET_EARLIEST_MSG_STORETIME RPC获取当前topic下指定ConsumeQueue中位移最小的消息被保存到CommitLog文件的时间
                 return this.mQClientFactory.getMQClientAPIImpl().getEarliestMsgStoretime(brokerAddr, mq.getTopic(), mq.getQueueId(),
                     timeoutMillis);
             } catch (Exception e) {

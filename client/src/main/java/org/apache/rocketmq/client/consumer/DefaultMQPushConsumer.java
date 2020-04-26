@@ -69,7 +69,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      * Internal implementation. Most of the functions herein are delegated to it.
      */
     // 和DefaultMQProducer的实现方式类似，DefaultMQPushConsumer在实现MQPushConsumer接口的方法时实际上是调用的这里的defaultMQPushConsumerImpl
-    // 对象实现的
+    // 对象实现的，DefaultMQPushConsumer类的主要目的是继承ClientConfig类，使其能够作为配置类被DefaultMQPushConsumerImpl使用
     protected final transient DefaultMQPushConsumerImpl defaultMQPushConsumerImpl;
 
     /**
@@ -390,7 +390,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
         this.namespace = namespace;
         // 负载均衡算法，默认为取模平均
         this.allocateMessageQueueStrategy = allocateMessageQueueStrategy;
-        // 真正实现了
+        // DefaultMQPushConsumer的大部分方法实际上就是调用DefaultMQPushConsumerImpl的相应方法实现的
         defaultMQPushConsumerImpl = new DefaultMQPushConsumerImpl(this, rpcHook);
     }
 

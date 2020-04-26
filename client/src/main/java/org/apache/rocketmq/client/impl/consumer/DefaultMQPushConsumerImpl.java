@@ -83,6 +83,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     /**
      * Delay some time when exception occur
      */
+    // 发生异常时延迟执行下一次操作的时间
     private long pullTimeDelayMillsWhenException = 3000;
     /**
      * Flow control interval
@@ -95,7 +96,9 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     private static final long BROKER_SUSPEND_MAX_TIME_MILLIS = 1000 * 15;
     private static final long CONSUMER_TIMEOUT_MILLIS_WHEN_SUSPEND = 1000 * 30;
     private final InternalLogger log = ClientLogger.getLog();
+    // DefaultMQPushConsumer保存了多个配置项，如pullTimeDelayMillsWhenException
     private final DefaultMQPushConsumer defaultMQPushConsumer;
+    // 消费者负载均衡的核心实现
     private final RebalanceImpl rebalanceImpl = new RebalancePushImpl(this);
     private final ArrayList<FilterMessageHook> filterMessageHookList = new ArrayList<FilterMessageHook>();
     private final long consumerStartTimestamp = System.currentTimeMillis();
@@ -106,11 +109,14 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     private MQClientInstance mQClientFactory;
     private PullAPIWrapper pullAPIWrapper;
     private volatile boolean pause = false;
-    // 是否是并发消费，顺序消费消息时consumeOrderly为false
+    // 是否是顺序消费，顺序消费消息时consumeOrderly为true
     private boolean consumeOrderly = false;
+    // 消息监听器，主要有MessageListenerOrderly和MessageListenerConcurrently，分别为顺序消费和并发消费
     private MessageListener messageListenerInner;
+    // 用于管理消费位移，包括加载、更新、持久化等
     private OffsetStore offsetStore;
     private ConsumeMessageService consumeMessageService;
+    // 触发流量控制的次数
     private long queueFlowControlTimes = 0;
     private long queueMaxSpanFlowControlTimes = 0;
 
@@ -156,6 +162,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
         }
     }
 
+    // 以key为源topic，获取其路由信息，并在找到的broker中创建newTopic这个topic
     public void createTopic(String key, String newTopic, int queueNum) throws MQClientException {
         createTopic(key, newTopic, queueNum, 0);
     }
@@ -164,10 +171,13 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
         this.mQClientFactory.getMQAdminImpl().createTopic(key, newTopic, queueNum, topicSysFlag);
     }
 
+    // 从路由信息中获取指定topic下所有的读队列
     public Set<MessageQueue> fetchSubscribeMessageQueues(String topic) throws MQClientException {
         Set<MessageQueue> result = this.rebalanceImpl.getTopicSubscribeInfoTable().get(topic);
         if (null == result) {
+            // 如果为空则更新路由
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(topic);
+            // 更新成功的话会有最新的读队列信息，这里再次获取
             result = this.rebalanceImpl.getTopicSubscribeInfoTable().get(topic);
         }
 
@@ -175,13 +185,16 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
             throw new MQClientException("The topic[" + topic + "] not exist", null);
         }
 
+        // 处理队列的topic的namespace前缀，默认namespace就是null，所以默认parseSubscribeMessageQueues方法什么也不会做
         return parseSubscribeMessageQueues(result);
     }
 
     public Set<MessageQueue> parseSubscribeMessageQueues(Set<MessageQueue> messageQueueList) {
         Set<MessageQueue> resultQueues = new HashSet<MessageQueue>();
         for (MessageQueue queue : messageQueueList) {
+            // 如果队列的topic带有指定的namespace前缀，则移除前缀，否则直接返回队列的topic
             String userTopic = NamespaceUtil.withoutNamespace(queue.getTopic(), this.defaultMQPushConsumer.getNamespace());
+            // 保存队列配置
             resultQueues.add(new MessageQueue(userTopic, queue.getBrokerName(), queue.getQueueId()));
         }
 
