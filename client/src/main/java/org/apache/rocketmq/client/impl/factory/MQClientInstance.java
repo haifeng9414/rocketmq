@@ -494,6 +494,9 @@ public class MQClientInstance {
             try {
                 // 向所有broker发送心跳
                 this.sendHeartbeatToAllBroker();
+                // 如果以class作为消息过滤机制，则发送类定义给filterServer，通常不会使用class进行消息过滤
+                // 可以在https://blog.csdn.net/prestigeding/article/details/79287382了解一些class
+                // 过滤的实现原理
                 this.uploadFilterClassSource();
             } catch (final Exception e) {
                 log.error("sendHeartbeatToAllBroker exception", e);
@@ -555,6 +558,9 @@ public class MQClientInstance {
 
     private void sendHeartbeatToAllBroker() {
         // 创建HeartbeatData对象，HeartbeatData包含了clientId、consumerTable和producerTable属性的值
+        // 即对于消费者，HeartbeatData对象保存了当前MQClientInstance对象内（即一个进程内）的所有的消费者组
+        // 名称和消费配置（包括订阅配置）
+        // 对于生产者，HeartbeatData对象保存了当前MQClientInstance对象内（即一个进程内）的所有生产者组名称
         final HeartbeatData heartbeatData = this.prepareHeartbeatData();
         final boolean producerEmpty = heartbeatData.getProducerDataSet().isEmpty();
         final boolean consumerEmpty = heartbeatData.getConsumerDataSet().isEmpty();
@@ -588,9 +594,7 @@ public class MQClientInstance {
                             消费者：
                             消费者与namesrv集群中的其中一个节点（随机选择）建立长连接，并定期从namesrv获取topic路由信息，向提供
                             topic服务的master broker、slave broker建立长连接，且定时向master broker、slave broker发送心跳
-                            */
 
-                            /*
                             当当前MQClientInstance对象的consumerTable为空时，则说明当前MQClientInstance对象是DefaultMQProducerImpl
                             对象创建的，服务于生产者，此时只需要发送心跳给master broker，所以这里跳过了非master的broker
                              */

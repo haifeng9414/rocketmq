@@ -753,7 +753,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      */
     @Override
     public void start() throws MQClientException {
-        // 以namespace%consumerGroup的格式创建新的consumerGroup
+        // 如果namespace不为空，则以namespace%consumerGroup的格式创建新的consumerGroup
         setConsumerGroup(NamespaceUtil.wrapNamespace(this.getNamespace(), this.consumerGroup));
         this.defaultMQPushConsumerImpl.start();
         if (null != traceDispatcher) {

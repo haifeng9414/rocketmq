@@ -52,7 +52,9 @@ public class FilterAPI {
                     if (tag.length() > 0) {
                         String trimString = tag.trim();
                         if (trimString.length() > 0) {
+                            // tagsSet保存了所有的标签
                             subscriptionData.getTagsSet().add(trimString);
+                            // codeSet保存了所有的标签的hashCode
                             subscriptionData.getCodeSet().add(trimString.hashCode());
                         }
                     }

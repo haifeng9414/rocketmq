@@ -607,8 +607,9 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 // 检查当前参数是否合法
                 this.checkConfig();
 
-                // 根据defaultMQPushConsumer中的subscription属性的值创建SubscriptionData并保存到订阅列表，同时订阅当前
-                // consumeGroup的retry消息
+                // defaultMQPushConsumer的subscription属性以Map的形式保存了消费者的订阅配置，copySubscription方法根据subscription
+                // 属性的值创建SubscriptionData对象并保存到rebalanceImpl对象，同时添加consumeGroup的retry topic的订阅，即订阅
+                // %RETRY%consumerGroupName这个topic
                 this.copySubscription();
 
                 if (this.defaultMQPushConsumer.getMessageModel() == MessageModel.CLUSTERING) {
@@ -881,6 +882,9 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 
     private void copySubscription() throws MQClientException {
         try {
+            // 如果defaultMQPushConsumer对象设置了subscription属性，即通过map设置了消费者的订阅配置，则
+            // 将根据这些配置创建SubscriptionData对象并保存到rebalanceImpl，这一过程和DefaultMQPushConsumerImpl
+            // 的subscribe方法一样
             Map<String, String> sub = this.defaultMQPushConsumer.getSubscription();
             if (sub != null) {
                 for (final Map.Entry<String, String> entry : sub.entrySet()) {
@@ -892,6 +896,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 }
             }
 
+            // 设置消息处理器
             if (null == this.messageListenerInner) {
                 this.messageListenerInner = this.defaultMQPushConsumer.getMessageListener();
             }
@@ -936,13 +941,14 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     // 订阅主题，subExpression参数为订阅的消息标签，如'*'、'tagA'等
     public void subscribe(String topic, String subExpression) throws MQClientException {
         try {
-            // 根据客户端的参数创建SubscriptionData对象
+            // 根据消费者的参数创建SubscriptionData对象，该对象保存了消费者订阅的topic和该topic的标签配置，即
+            // 一个SubscriptionData对象表示消费者的某个topic订阅
             SubscriptionData subscriptionData = FilterAPI.buildSubscriptionData(this.defaultMQPushConsumer.getConsumerGroup(),
                 topic, subExpression);
             // 保存订阅配置
             this.rebalanceImpl.getSubscriptionInner().put(topic, subscriptionData);
             if (this.mQClientFactory != null) {
-                // 向broker发送心跳
+                // 向broker发送心跳，心跳中会包含消费者的组名和消费配置、订阅配置
                 this.mQClientFactory.sendHeartbeatToAllBrokerWithLock();
             }
         } catch (Exception e) {

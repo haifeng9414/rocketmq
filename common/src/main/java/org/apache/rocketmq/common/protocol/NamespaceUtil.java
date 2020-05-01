@@ -80,6 +80,12 @@ public class NamespaceUtil {
         return resourceWithNamespace;
     }
 
+    // resourceWithOutNamespace通常是某个topic，如果namespace为空或者resourceWithOutNamespace为空则直接
+    // 返回resourceWithOutNamespace，否则如果resourceWithOutNamespace是rocketmq内置的topic则直接返回
+    // 如果以上条件都不满足，则判断resourceWithOutNamespace是否是%RETRY%或%DLQ%开头的，即是否是重试队列或者
+    // 死信队列的topic，如果是则返回%RETRY%或%DLQ% + namespace%resourceWithoutRetryAndDLQ形式的字符串，
+    // 否则返回namespace%resourceWithoutRetryAndDLQ
+    // 即主要目的是在namespace不为空的情况下在resourceWithOutNamespace前加上namespace并返回
     public static String wrapNamespace(String namespace, String resourceWithOutNamespace) {
         if (StringUtils.isEmpty(namespace) || StringUtils.isEmpty(resourceWithOutNamespace)) {
             return resourceWithOutNamespace;
