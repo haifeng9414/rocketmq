@@ -602,6 +602,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
             case CREATE_JUST:
                 log.info("the consumer [{}] start beginning. messageModel={}, isUnitMode={}", this.defaultMQPushConsumer.getConsumerGroup(),
                     this.defaultMQPushConsumer.getMessageModel(), this.defaultMQPushConsumer.isUnitMode());
+                // 设置状态为启动失败，如果启动过程正常执行，则会在最后更新成Running状态
                 this.serviceState = ServiceState.START_FAILED;
 
                 // 检查当前参数是否合法
@@ -621,6 +622,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 this.mQClientFactory = MQClientManager.getInstance().getOrCreateMQClientInstance(this.defaultMQPushConsumer, this.rpcHook);
 
                 // 配置负载均衡
+
                 // 消费组
                 this.rebalanceImpl.setConsumerGroup(this.defaultMQPushConsumer.getConsumerGroup());
                 // 广播模式还是集群模式
@@ -890,6 +892,8 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 for (final Map.Entry<String, String> entry : sub.entrySet()) {
                     final String topic = entry.getKey();
                     final String subString = entry.getValue();
+                    // 一个SubscriptionData对象表示消费者的一个订阅配置，即一个SubscriptionData对应一个topic和消费者设置的
+                    // topic的标签
                     SubscriptionData subscriptionData = FilterAPI.buildSubscriptionData(this.defaultMQPushConsumer.getConsumerGroup(),
                         topic, subString);
                     this.rebalanceImpl.getSubscriptionInner().put(topic, subscriptionData);

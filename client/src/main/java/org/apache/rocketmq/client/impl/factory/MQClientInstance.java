@@ -260,6 +260,7 @@ public class MQClientInstance {
                     // Start push service
                     // 启动productGroup为MixAll.CLIENT_INNER_PRODUCER_GROUP的内置生产者，注意这里传入的startFactory参数为false，
                     // 因为内置生产者不需要启动上面这几个线程和定时任务
+                    // defaultMQProducer主要用于在消息消费失败时发送消息给broker以实现消息重试
                     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
                     log.info("the client factory [{}] start OK", this.clientId);
                     this.serviceState = ServiceState.RUNNING;
