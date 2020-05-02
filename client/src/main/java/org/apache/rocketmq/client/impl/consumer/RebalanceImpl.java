@@ -231,6 +231,8 @@ public abstract class RebalanceImpl {
             }
         }
 
+        // 遍历processQueueTable属性中的MessageQueue对象，如果MessageQueue对象的topic不在subscriptionInner
+        // 保存的订阅的topic中，则将MessageQueue对象从processQueueTable移除
         this.truncateMessageQueueNotMyTopic();
     }
 
@@ -258,16 +260,22 @@ public abstract class RebalanceImpl {
                 break;
             }
             case CLUSTERING: {
+                // 获取topic的所有MessageQueue对象，每个MessageQueue对象代表一个broker中的consumeQueue，
+                // 即MessageQueue对象包含了topic、brokerName和queueId
                 Set<MessageQueue> mqSet = this.topicSubscribeInfoTable.get(topic);
                 // 获取consumerGroup下所有的消费者id
                 List<String> cidAll = this.mQClientFactory.findConsumerIdList(topic, consumerGroup);
-                // 如果没有broker支持当前topic的读取，则
+                // 通常topicSubscribeInfoTable中会包含topic的路由信息，如果mqSet为空则可能是broker中没有
+                // 该topic，或者当前消费者还没获取过路由信息（这种情况其实不会发生，因为DefaultMQPushConsumerImpl
+                // 的start方法最后调用了updateTopicSubscribeInfoWhenSubscriptionChanged方法更新了路由信息），
+                // 这里用日志记录下这种情况
                 if (null == mqSet) {
                     if (!topic.startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
                         log.warn("doRebalance, {}, but the topic[{}] not exist.", consumerGroup, topic);
                     }
                 }
 
+                // 如果当前消费组还没有消费者注册到broker，通常这也不会发生，因为只是当前消费者是会注册到broker的
                 if (null == cidAll) {
                     log.warn("doRebalance, {} {}, get consumer id list failed", consumerGroup, topic);
                 }
@@ -279,11 +287,13 @@ public abstract class RebalanceImpl {
                     Collections.sort(mqAll);
                     Collections.sort(cidAll);
 
+                    // allocateMessageQueueStrategy为负载均衡策略
                     AllocateMessageQueueStrategy strategy = this.allocateMessageQueueStrategy;
 
                     List<MessageQueue> allocateResult = null;
                     try {
-                        // 根据传入的信息从mqAll中选若干个队列作为当前消费者的消息来源
+                        // 通过负载均衡策略从mqAll中选若干个队列作为当前消费者的消息来源，即当前消费者会消费这些
+                        // 队列
                         allocateResult = strategy.allocate(
                             this.consumerGroup,
                             this.mQClientFactory.getClientId(),

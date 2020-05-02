@@ -1081,6 +1081,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     @Override
     public void doRebalance() {
         if (!this.pause) {
+            // isConsumeOrderly方法返回值表示当前消费者是否是顺序消费
             this.rebalanceImpl.doRebalance(this.isConsumeOrderly());
         }
     }

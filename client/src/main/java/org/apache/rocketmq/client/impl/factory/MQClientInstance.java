@@ -1145,6 +1145,7 @@ public class MQClientInstance {
     public List<String> findConsumerIdList(final String topic, final String group) {
         // 从所有存在指定topic的broker中随机选一个
         String brokerAddr = this.findBrokerAddrByTopic(topic);
+        // 如果为空则更新路由信息后再获取
         if (null == brokerAddr) {
             this.updateTopicRouteInfoFromNameServer(topic);
             brokerAddr = this.findBrokerAddrByTopic(topic);
