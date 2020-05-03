@@ -310,12 +310,17 @@ public abstract class RebalanceImpl {
                         allocateResultSet.addAll(allocateResult);
                     }
 
+                    // allocateResultSet保存了所有根据负载均衡策略分配到的MessageQueue对象
                     boolean changed = this.updateProcessQueueTableInRebalance(topic, allocateResultSet, isOrder);
+                    // 如果这次的负载均衡和上次的结果有变化（新增或移除了需要消费的MessageQueue）
                     if (changed) {
+                        // 记录下这次负载均衡的结果
                         log.info(
                             "rebalanced result changed. allocateMessageQueueStrategyName={}, group={}, topic={}, clientId={}, mqAllSize={}, cidAllSize={}, rebalanceResultSize={}, rebalanceResultSet={}",
                             strategy.getName(), consumerGroup, topic, this.mQClientFactory.getClientId(), mqSet.size(), cidAll.size(),
                             allocateResultSet.size(), allocateResultSet);
+                        // messageQueueChanged方法会根据这次负载均衡的结果更新流控的配置，并发送心跳给broker（也就是告诉broker这次
+                        // 负载均衡的结果）
                         this.messageQueueChanged(topic, mqSet, allocateResultSet);
                     }
                 }
@@ -345,6 +350,7 @@ public abstract class RebalanceImpl {
         final boolean isOrder) {
         boolean changed = false;
 
+        // processQueueTable保存了上一次负载均衡后分配到的MessageQueue及对应的ProcessQueue
         Iterator<Entry<MessageQueue, ProcessQueue>> it = this.processQueueTable.entrySet().iterator();
         while (it.hasNext()) {
             Entry<MessageQueue, ProcessQueue> next = it.next();
@@ -352,19 +358,28 @@ public abstract class RebalanceImpl {
             ProcessQueue pq = next.getValue();
 
             if (mq.getTopic().equals(topic)) {
+                // 如果这次负载均衡没有分配到该MessageQueue
                 if (!mqSet.contains(mq)) {
+                    // 标记ProcessQueue的dropped属性为true
                     pq.setDropped(true);
+                    // removeUnnecessaryMessageQueue方法会提交并清除消费位移，对于顺序消费，会向broker发送解锁consumeQueue的请求
                     if (this.removeUnnecessaryMessageQueue(mq, pq)) {
+                        // 解锁成功则从processQueueTable中移除该MessageQueue
                         it.remove();
                         changed = true;
                         log.info("doRebalance, {}, remove unnecessary mq, {}", consumerGroup, mq);
                     }
+                    // 当前MessageQueue在上次负载均衡时也被分配到了当前消费者，并且当前MessageQueue的上次拉取消息时间到当前时间的
+                    // 时间差超过了阈值（默认2分钟）
                 } else if (pq.isPullExpired()) {
                     switch (this.consumeType()) {
-                        case CONSUME_ACTIVELY:
+                        case CONSUME_ACTIVELY: // CONSUME_ACTIVELY表示消费者的拉取策略是pull
                             break;
-                        case CONSUME_PASSIVELY:
+                        case CONSUME_PASSIVELY: // CONSUME_PASSIVELY表示消费者的拉取策略是push
+                            // 拉取消息超时了就标记ProcessQueue的dropped属性为true，表示当前消费者不再消费该ProcessQueue对应的
+                            // MessageQueue（也就是broker中对应的consumeQueue）
                             pq.setDropped(true);
+                            // 既然放弃消费当前MessageQueue，就要提交并移除消费位移，同时对于顺序消费的情况，尝试释放锁
                             if (this.removeUnnecessaryMessageQueue(mq, pq)) {
                                 it.remove();
                                 changed = true;
@@ -380,15 +395,24 @@ public abstract class RebalanceImpl {
         }
 
         List<PullRequest> pullRequestList = new ArrayList<PullRequest>();
+        // mqSet保存在这次负载均衡分配到的所有MessageQueue对象
         for (MessageQueue mq : mqSet) {
+            // 如果上一次负载均衡后当前的MessageQueue对象没有分配给当前RebalanceImpl对象所在的DefaultMQPushConsumerImpl对象
+            // 则在下面创建这次新分配到的MessageQueue对象对应的PullRequest
             if (!this.processQueueTable.containsKey(mq)) {
+                // 顺序消息锁住当前的MessageQueue，也就是对应的Broker中的consumeQueue，从上面removeUnnecessaryMessageQueue方法
+                // 的实现可以看出，锁是可能加不上的，此时记录日志，跳过这个分配到的MessageQueue
                 if (isOrder && !this.lock(mq)) {
                     log.warn("doRebalance, {}, add a new mq failed, {}, because lock failed", consumerGroup, mq);
                     continue;
                 }
 
+                // 清除OffsetStore中保存的MessageQueue的消费位移，确保新分配的MessageQueue不会被旧数据影响
                 this.removeDirtyOffset(mq);
+                // ProcessQueue表示当前MessageQueue对象在当前消费者的消费情况，通过ProcessQueue对象能够判断是否需要触发消费者
+                // 流控
                 ProcessQueue pq = new ProcessQueue();
+                // 根据DefaultMQPushConsumer对象的ConsumeFromWhere配置获取消费位移
                 long nextOffset = this.computePullFromWhere(mq);
                 if (nextOffset >= 0) {
                     ProcessQueue pre = this.processQueueTable.putIfAbsent(mq, pq);
@@ -396,6 +420,7 @@ public abstract class RebalanceImpl {
                         log.info("doRebalance, {}, mq already exists, {}", consumerGroup, mq);
                     } else {
                         log.info("doRebalance, {}, add a new mq, {}", consumerGroup, mq);
+                        // 创建当前MessageQueue对应的PullRequest
                         PullRequest pullRequest = new PullRequest();
                         pullRequest.setConsumerGroup(consumerGroup);
                         pullRequest.setNextOffset(nextOffset);
@@ -410,6 +435,8 @@ public abstract class RebalanceImpl {
             }
         }
 
+        // pullRequestList保存了这次负载均衡新分配到的所有MessageQueue对应的PullRequest（不包括已经分配到的MessageQueue）
+        // 这里开始针对这些PullRequest执行拉取消息操作
         this.dispatchPullRequest(pullRequestList);
 
         return changed;

@@ -74,6 +74,7 @@ public class ClientManageProcessor implements NettyRequestProcessor {
     public RemotingCommand heartBeat(ChannelHandlerContext ctx, RemotingCommand request) {
         RemotingCommand response = RemotingCommand.createResponseCommand(null);
         HeartbeatData heartbeatData = HeartbeatData.decode(request.getBody(), HeartbeatData.class);
+        // ClientChannelInfo表示一个消费者的连接，主要在于ctx.channel()，这个是netty的channel
         ClientChannelInfo clientChannelInfo = new ClientChannelInfo(
             ctx.channel(),
             heartbeatData.getClientID(),
@@ -81,18 +82,24 @@ public class ClientManageProcessor implements NettyRequestProcessor {
             request.getVersion()
         );
 
+        // ConsumerData包含了一个消费者的配置，包括消费者组名、push还是pull、集群还是广播模式、订阅配置等
         for (ConsumerData data : heartbeatData.getConsumerDataSet()) {
+            // SubscriptionGroupConfig表示broker中保存的某个消费者组的配置
             SubscriptionGroupConfig subscriptionGroupConfig =
                 this.brokerController.getSubscriptionGroupManager().findSubscriptionGroupConfig(
                     data.getGroupName());
             boolean isNotifyConsumerIdsChangedEnable = true;
             if (null != subscriptionGroupConfig) {
+                // isNotifyConsumerIdsChangedEnable表示broker发现某个消费者组的消费者实例数量有变化时，是否通知所有这个消费者组的
+                // 消费者实例，默认为true。当消费者收到这个通知后，会立即触发负载均衡
                 isNotifyConsumerIdsChangedEnable = subscriptionGroupConfig.isNotifyConsumerIdsChangedEnable();
                 int topicSysFlag = 0;
                 if (data.isUnitMode()) {
                     topicSysFlag = TopicSysFlag.buildSysFlag(false, true);
                 }
                 String newTopic = MixAll.getRetryTopic(data.getGroupName());
+                // 如果retry topic还不存在则创建并发送当前broker的配置给所有的nameSrv，否则createTopicInSendMessageBackMethod
+                // 方法会直接返回
                 this.brokerController.getTopicConfigManager().createTopicInSendMessageBackMethod(
                     newTopic,
                     subscriptionGroupConfig.getRetryQueueNums(),

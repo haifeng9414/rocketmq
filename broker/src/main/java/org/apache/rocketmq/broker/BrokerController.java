@@ -981,6 +981,7 @@ public class BrokerController {
             this.brokerConfig.getBrokerName(),
             this.brokerConfig.getBrokerId(),
             this.brokerConfig.getRegisterBrokerTimeoutMills())) {
+            // 发送注册请求给所有的nameSrv，注册请求中还包含当前broker的配置，包括当前broker中存在的topic
             doRegisterBrokerAll(checkOrderConfig, oneway, topicConfigWrapper);
         }
     }

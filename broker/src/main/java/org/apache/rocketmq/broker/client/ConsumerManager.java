@@ -99,6 +99,7 @@ public class ConsumerManager {
         ConsumeType consumeType, MessageModel messageModel, ConsumeFromWhere consumeFromWhere,
         final Set<SubscriptionData> subList, boolean isNotifyConsumerIdsChangedEnable) {
 
+        // 如果不存在当前消费者组的ConsumerGroupInfo则新建一个
         ConsumerGroupInfo consumerGroupInfo = this.consumerTable.get(group);
         if (null == consumerGroupInfo) {
             ConsumerGroupInfo tmp = new ConsumerGroupInfo(group, consumeType, messageModel, consumeFromWhere);
@@ -106,17 +107,23 @@ public class ConsumerManager {
             consumerGroupInfo = prev != null ? prev : tmp;
         }
 
+        // 将clientChannelInfo保存下来，这样相当于broker拥有了和消费者通信的能力，因为clientChannelInfo中包含了对应的
+        // 消费者的channel，如果已经保存了clientChannelInfo对应的消费者的channel，则updateChannel返回false
         boolean r1 =
             consumerGroupInfo.updateChannel(clientChannelInfo, consumeType, messageModel,
                 consumeFromWhere);
+        // 更新订阅配置，如果配置没有发生变化则updateSubscription返回false
         boolean r2 = consumerGroupInfo.updateSubscription(subList);
 
         if (r1 || r2) {
+            // r1为true表示有新的消费者注册到了当前broker，r2为true表示消费者的订阅配置变化了，这两种情况的任意一种都通知当前消费者组
+            // 的所有消费者实例
             if (isNotifyConsumerIdsChangedEnable) {
                 this.consumerIdsChangeListener.handle(ConsumerGroupEvent.CHANGE, group, consumerGroupInfo.getAllChannel());
             }
         }
 
+        // 触发ConsumerGroupEvent.REGISTER事件，对于该事件，主要是更新当前broker的消费过滤配置
         this.consumerIdsChangeListener.handle(ConsumerGroupEvent.REGISTER, group, subList);
 
         return r1 || r2;
