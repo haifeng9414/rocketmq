@@ -153,9 +153,11 @@ public class PullAPIWrapper {
         final CommunicationMode communicationMode,
         final PullCallback pullCallback
     ) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
+        // findBrokerAddressInSubscribe方法用于从name相等的broker中选择一个来拉取消息
         FindBrokerResult findBrokerResult =
             this.mQClientFactory.findBrokerAddressInSubscribe(mq.getBrokerName(),
                 this.recalculatePullFromWhichNode(mq), false);
+        // 如果选择结果为空则更新路由并再次选择
         if (null == findBrokerResult) {
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(mq.getTopic());
             findBrokerResult =
@@ -166,6 +168,7 @@ public class PullAPIWrapper {
         if (findBrokerResult != null) {
             {
                 // check version
+                // 如果不是根据标签进行消息过滤，并且broker的版本小于V4_1_0_SNAPSHOT则报错
                 if (!ExpressionType.isTagType(expressionType)
                     && findBrokerResult.getBrokerVersion() < MQVersion.Version.V4_1_0_SNAPSHOT.ordinal()) {
                     throw new MQClientException("The broker[" + mq.getBrokerName() + ", "
@@ -174,6 +177,7 @@ public class PullAPIWrapper {
             }
             int sysFlagInner = sysFlag;
 
+            // 如果选择的broker是slave，则设置commitOffsetFlag为false
             if (findBrokerResult.isSlave()) {
                 sysFlagInner = PullSysFlag.clearCommitOffsetFlag(sysFlagInner);
             }
@@ -192,10 +196,13 @@ public class PullAPIWrapper {
             requestHeader.setExpressionType(expressionType);
 
             String brokerAddr = findBrokerResult.getBrokerAddr();
+            // 如果是基于class的消息过滤，则拉取消息的地址是filterServer而不是broker，这里从路由信息中获取broker对应的
+            // filterServer的地址
             if (PullSysFlag.hasClassFilterFlag(sysFlagInner)) {
                 brokerAddr = computPullFromWhichFilterServer(mq.getTopic(), brokerAddr);
             }
 
+            // 向broker发送拉取消息的请求
             PullResult pullResult = this.mQClientFactory.getMQClientAPIImpl().pullMessage(
                 brokerAddr,
                 requestHeader,

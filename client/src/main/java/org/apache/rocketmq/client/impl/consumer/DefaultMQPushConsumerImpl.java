@@ -227,11 +227,13 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 
     public void pullMessage(final PullRequest pullRequest) {
         final ProcessQueue processQueue = pullRequest.getProcessQueue();
+        // dropped属性为true表示该ProcessQueue所属的MessageQueue对象已经不由当前消费者消费了
         if (processQueue.isDropped()) {
             log.info("the pull request[{}] is dropped.", pullRequest.toString());
             return;
         }
 
+        // 更新消息拉取时间为当前时间
         pullRequest.getProcessQueue().setLastPullTimestamp(System.currentTimeMillis());
 
         try {
@@ -251,7 +253,9 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
             return;
         }
 
+        // 获取当前等待被消费的消息数量
         long cachedMessageCount = processQueue.getMsgCount().get();
+        // 获取当前等待被消费的消息大小
         long cachedMessageSizeInMiB = processQueue.getMsgSize().get() / (1024 * 1024);
 
         // 如果当前等待消费的消息数量大于阈值，则等待50ms再执行pullMessage方法
@@ -278,6 +282,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
             return;
         }
 
+        // 如果不是顺序消费
         if (!this.consumeOrderly) {
             if (processQueue.getMaxSpan() > this.defaultMQPushConsumer.getConsumeConcurrentlyMaxSpan()) {
                 this.executePullRequestLater(pullRequest, PULL_TIME_DELAY_MILLS_WHEN_FLOW_CONTROL);
@@ -290,9 +295,14 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 return;
             }
         } else {
+            // 否则如果是顺序消费，检查是否持有broker中对应的队列的锁
             if (processQueue.isLocked()) {
+                // lockedFirst属性可以认为表示该pullRequest对象是否执行过拉取消息
                 if (!pullRequest.isLockedFirst()) {
+                    // 根据ConsumeFromWhere的配置获取消费位移，创建pullRequest对象时已经执行过computePullFromWhere方法并将结果
+                    // 设置到了pullRequest对象的nextOffset属性，这里再次获取消费位移，可能是为了尽量确保不重复消费消息吧
                     final long offset = this.rebalanceImpl.computePullFromWhere(pullRequest.getMessageQueue());
+                    // 不确定啥时候会出现offset < pullRequest.getNextOffset()
                     boolean brokerBusy = offset < pullRequest.getNextOffset();
                     log.info("the first time to pull message, so fix offset from broker. pullRequest: {} NewOffset: {} brokerBusy: {}",
                         pullRequest, offset, brokerBusy);
@@ -301,16 +311,21 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                             pullRequest, offset);
                     }
 
+                    // 标记pullRequest已经执行过拉取消息了
                     pullRequest.setLockedFirst(true);
                     pullRequest.setNextOffset(offset);
                 }
             } else {
+                // 未持有则不能消费，这里延迟一段时间后再次执行pullRequest，通常不会出现dropped为false，processQueue.isLocked()也
+                // 为false的情况。由于消费者会定时负载均衡，所以这里一段时间后再执行pullRequest可能就会dropped为true，或者processQueue
+                // 加锁成功
                 this.executePullRequestLater(pullRequest, pullTimeDelayMillsWhenException);
                 log.info("pull message later because not locked in broker, {}", pullRequest);
                 return;
             }
         }
 
+        // 获取订阅配置
         final SubscriptionData subscriptionData = this.rebalanceImpl.getSubscriptionInner().get(pullRequest.getMessageQueue().getTopic());
         if (null == subscriptionData) {
             this.executePullRequestLater(pullRequest, pullTimeDelayMillsWhenException);
@@ -320,6 +335,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 
         final long beginTimestamp = System.currentTimeMillis();
 
+        // 拉取消息成功后的回调函数
         PullCallback pullCallback = new PullCallback() {
             @Override
             public void onSuccess(PullResult pullResult) {
@@ -462,7 +478,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 commitOffsetValue,
                 BROKER_SUSPEND_MAX_TIME_MILLIS,
                 CONSUMER_TIMEOUT_MILLIS_WHEN_SUSPEND,
-                CommunicationMode.ASYNC,
+                CommunicationMode.ASYNC, // 异步拉取消息
                 pullCallback
             );
         } catch (Exception e) {

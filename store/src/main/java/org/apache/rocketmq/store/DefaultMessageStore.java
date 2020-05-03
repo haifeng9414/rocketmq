@@ -583,6 +583,7 @@ public class DefaultMessageStore implements MessageStore {
                         final int maxFilterMessageCount = Math.max(16000, maxMsgNums * ConsumeQueue.CQ_STORE_UNIT_SIZE);
                         final boolean diskFallRecorded = this.messageStoreConfig.isDiskFallRecorded();
                         ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
+                        // 遍历consumeQueue的记录
                         for (; i < bufferConsumeQueue.getSize() && i < maxFilterMessageCount; i += ConsumeQueue.CQ_STORE_UNIT_SIZE) {
                             long offsetPy = bufferConsumeQueue.getByteBuffer().getLong();
                             int sizePy = bufferConsumeQueue.getByteBuffer().getInt();
@@ -595,8 +596,11 @@ public class DefaultMessageStore implements MessageStore {
                                     continue;
                             }
 
+                            // 判断当前消息位移值对应的消息是否在磁盘中（如果isInDisk为false表示消息在内存中）
                             boolean isInDisk = checkInDiskByCommitOffset(offsetPy, maxOffsetPy);
 
+                            // 判断是否应该停止拉取消息了，判断依据是已经保存在getResult中的消息数量或者消息大小加上这次遍历到的消息
+                            // 大小是否超过了指定的值，传入isInDisk是因为指定的值在消息存在于磁盘和存在于内存时是不一样的
                             if (this.isTheBatchFull(sizePy, maxMsgNums, getResult.getBufferTotalSize(), getResult.getMessageCount(),
                                 isInDisk)) {
                                 break;
@@ -615,6 +619,7 @@ public class DefaultMessageStore implements MessageStore {
                                 }
                             }
 
+                            // 根据tagHashCode执行消息过滤
                             if (messageFilter != null
                                 && !messageFilter.isMatchedByConsumeQueue(isTagsCodeLegal ? tagsCode : null, extRet ? cqExtUnit : null)) {
                                 if (getResult.getBufferTotalSize() == 0) {
@@ -624,6 +629,7 @@ public class DefaultMessageStore implements MessageStore {
                                 continue;
                             }
 
+                            // 从commitLog文件读取指定位移的消息
                             SelectMappedBufferResult selectResult = this.commitLog.getMessage(offsetPy, sizePy);
                             if (null == selectResult) {
                                 if (getResult.getBufferTotalSize() == 0) {
@@ -645,6 +651,7 @@ public class DefaultMessageStore implements MessageStore {
                             }
 
                             this.storeStatsService.getGetMessageTransferedMsgCount().incrementAndGet();
+                            // 保存消息到结果集
                             getResult.addMessage(selectResult);
                             status = GetMessageStatus.FOUND;
                             nextPhyFileStartOffset = Long.MIN_VALUE;
@@ -657,12 +664,15 @@ public class DefaultMessageStore implements MessageStore {
 
                         nextBeginOffset = offset + (i / ConsumeQueue.CQ_STORE_UNIT_SIZE);
 
+                        // 计算当前broker的消息的最大位移和这次拉取到的消息的位移的差值
                         long diff = maxOffsetPy - maxPhyOffsetPulling;
+                        // 计算允许保存在内存中的消息的大小，默认为物理内存的40%
                         long memory = (long) (StoreUtil.TOTAL_PHYSICAL_MEMORY_SIZE
                             * (this.messageStoreConfig.getAccessMessageInMemoryMaxRatio() / 100.0));
+                        // 如果diff > memory说明消费者消费消息的速度满足生产者生产消息的速度，导致拉取消息会从磁盘读取，此时设置
+                        // suggestPullingFromSlave为true表示建议之后的拉取请求从slave拉取
                         getResult.setSuggestPullingFromSlave(diff > memory);
                     } finally {
-
                         bufferConsumeQueue.release();
                     }
                 } else {
@@ -677,6 +687,7 @@ public class DefaultMessageStore implements MessageStore {
             nextBeginOffset = nextOffsetCorrection(offset, 0);
         }
 
+        // 记录统计数据
         if (GetMessageStatus.FOUND == status) {
             this.storeStatsService.getGetMessageTimesTotalFound().incrementAndGet();
         } else {
@@ -686,8 +697,11 @@ public class DefaultMessageStore implements MessageStore {
         this.storeStatsService.setGetMessageEntireTimeMax(elapsedTime);
 
         getResult.setStatus(status);
+        // nextBeginOffset为下一次拉取消息时应该拉取的起始位移
         getResult.setNextBeginOffset(nextBeginOffset);
+        // maxOffset为当前consumeQueue的消息位移的最大值
         getResult.setMaxOffset(maxOffset);
+        // maxOffset为当前consumeQueue的消息位移的最小值
         getResult.setMinOffset(minOffset);
         return getResult;
     }
