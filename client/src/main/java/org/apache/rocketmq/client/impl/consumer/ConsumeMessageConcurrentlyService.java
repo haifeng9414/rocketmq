@@ -63,25 +63,32 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
     public ConsumeMessageConcurrentlyService(DefaultMQPushConsumerImpl defaultMQPushConsumerImpl,
         MessageListenerConcurrently messageListener) {
         this.defaultMQPushConsumerImpl = defaultMQPushConsumerImpl;
+        // messageListener就是用户编写的消息消费逻辑
         this.messageListener = messageListener;
 
+        // 通过defaultMQPushConsumer能够获取到配置
         this.defaultMQPushConsumer = this.defaultMQPushConsumerImpl.getDefaultMQPushConsumer();
+        // 当前消费者的消费者组
         this.consumerGroup = this.defaultMQPushConsumer.getConsumerGroup();
         this.consumeRequestQueue = new LinkedBlockingQueue<Runnable>();
 
+        // 初始化线程池
         this.consumeExecutor = new ThreadPoolExecutor(
-            this.defaultMQPushConsumer.getConsumeThreadMin(),
-            this.defaultMQPushConsumer.getConsumeThreadMax(),
+            this.defaultMQPushConsumer.getConsumeThreadMin(), // 默认20
+            this.defaultMQPushConsumer.getConsumeThreadMax(), // 默认20
             1000 * 60,
             TimeUnit.MILLISECONDS,
-            this.consumeRequestQueue,
+            this.consumeRequestQueue, // 使用无界同步队列
             new ThreadFactoryImpl("ConsumeMessageThread_"));
 
+        // 初始化一个单线程的线程池
         this.scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("ConsumeMessageScheduledThread_"));
         this.cleanExpireMsgExecutors = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("CleanExpireMsgScheduledThread_"));
     }
 
     public void start() {
+        // 定时执行cleanExpireMsg方法，cleanExpireMsg方法会检查消息是否消费超时，如果超时则会发送CONSUMER_SEND_MSG_BACK请求给broker，
+        // 请求中带有消费超时的消息，broker会将消息保存到重试队列
         this.cleanExpireMsgExecutors.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -238,6 +245,7 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
 
 
     private void cleanExpireMsg() {
+        // 遍历当前消费者负责消费的队列
         Iterator<Map.Entry<MessageQueue, ProcessQueue>> it =
             this.defaultMQPushConsumerImpl.getRebalanceImpl().getProcessQueueTable().entrySet().iterator();
         while (it.hasNext()) {

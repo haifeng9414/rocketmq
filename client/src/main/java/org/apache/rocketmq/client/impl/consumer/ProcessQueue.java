@@ -79,16 +79,18 @@ public class ProcessQueue {
             return;
         }
 
+        // 最多循环16次
         int loop = msgTreeMap.size() < 16 ? msgTreeMap.size() : 16;
         for (int i = 0; i < loop; i++) {
             MessageExt msg = null;
             try {
                 this.lockTreeMap.readLock().lockInterruptibly();
                 try {
+                    // 如果第一条消息被消费的时间超过了consumeTimeout（默认15分钟）
                     if (!msgTreeMap.isEmpty() && System.currentTimeMillis() - Long.parseLong(MessageAccessor.getConsumeStartTimeStamp(msgTreeMap.firstEntry().getValue())) > pushConsumer.getConsumeTimeout() * 60 * 1000) {
                         msg = msgTreeMap.firstEntry().getValue();
                     } else {
-
+                        // 未超时直接终止循环
                         break;
                     }
                 } finally {
@@ -99,7 +101,7 @@ public class ProcessQueue {
             }
 
             try {
-
+                // 超时的情况下，将消息发送给broker，broker将会把消息保存到retry topic
                 pushConsumer.sendMessageBack(msg, 3);
                 log.info("send expire msg back. topic={}, msgId={}, storeHost={}, queueId={}, queueOffset={}", msg.getTopic(), msg.getMsgId(), msg.getStoreHost(), msg.getQueueId(), msg.getQueueOffset());
                 try {
@@ -107,6 +109,7 @@ public class ProcessQueue {
                     try {
                         if (!msgTreeMap.isEmpty() && msg.getQueueOffset() == msgTreeMap.firstKey()) {
                             try {
+                                // 已经发送到重试队列的了，移除消息记录即可
                                 removeMessage(Collections.singletonList(msg));
                             } catch (Exception e) {
                                 log.error("send expired msg exception", e);
