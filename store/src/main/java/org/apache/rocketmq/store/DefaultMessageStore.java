@@ -547,13 +547,18 @@ public class DefaultMessageStore implements MessageStore {
 
         GetMessageResult getResult = new GetMessageResult();
 
+        // 获取当前broker中所有消息的最大位移
         final long maxOffsetPy = this.commitLog.getMaxOffset();
 
+        // 根据topic和队列id找到对应的consumeQueue
         ConsumeQueue consumeQueue = findConsumeQueue(topic, queueId);
         if (consumeQueue != null) {
+            // 当前队列中消息的最小位移
             minOffset = consumeQueue.getMinOffsetInQueue();
+            // 当前队列中消息的最大位移
             maxOffset = consumeQueue.getMaxOffsetInQueue();
 
+            // 验证拉取请求的消息位移是否合法，即是否在minOffset和maxOffset之间
             if (maxOffset == 0) {
                 status = GetMessageStatus.NO_MESSAGE_IN_QUEUE;
                 nextBeginOffset = nextOffsetCorrection(offset, 0);
@@ -571,27 +576,40 @@ public class DefaultMessageStore implements MessageStore {
                     nextBeginOffset = nextOffsetCorrection(offset, maxOffset);
                 }
             } else {
+                // 根据消息位移获取具体的ConsumeQueue文件的字节数据
                 SelectMappedBufferResult bufferConsumeQueue = consumeQueue.getIndexBuffer(offset);
                 if (bufferConsumeQueue != null) {
                     try {
                         status = GetMessageStatus.NO_MATCHED_MESSAGE;
 
+                        // 表示可以拉取的消息的最小值，初始为Long.MIN_VALUE即还没有限制
                         long nextPhyFileStartOffset = Long.MIN_VALUE;
+                        // 当前ConsumeQueue文件中遍历到的消息位移的最大值
                         long maxPhyOffsetPulling = 0;
 
                         int i = 0;
+                        // 最大可以拉取的消息个数（其实是消息大小，可以看下面for循环的条件，i的值是每次递增ConsumeQueue.CQ_STORE_UNIT_SIZE，
+                        // 即20个字节，所以一次拉取请求最多能够拉取16000/20=800条消息）
                         final int maxFilterMessageCount = Math.max(16000, maxMsgNums * ConsumeQueue.CQ_STORE_UNIT_SIZE);
+                        // 是否统计这次拉取的消息的最大值和broker保存的消息的最大值之间的差到brokerStatsManager，默认为true
                         final boolean diskFallRecorded = this.messageStoreConfig.isDiskFallRecorded();
                         ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
                         // 遍历consumeQueue的记录
                         for (; i < bufferConsumeQueue.getSize() && i < maxFilterMessageCount; i += ConsumeQueue.CQ_STORE_UNIT_SIZE) {
+                            // 消息在commitLog文件中的位移
                             long offsetPy = bufferConsumeQueue.getByteBuffer().getLong();
+                            // 消息的大小
                             int sizePy = bufferConsumeQueue.getByteBuffer().getInt();
+                            // 消息标签的hashCode
                             long tagsCode = bufferConsumeQueue.getByteBuffer().getLong();
 
+                            // 更新遍历到的消息的最大位移值
                             maxPhyOffsetPulling = offsetPy;
 
+                            // nextPhyFileStartOffset会在下面被更新，主要用于判断当前遍历的位移所在的CommitLog文件是否存在
                             if (nextPhyFileStartOffset != Long.MIN_VALUE) {
+                                // 如果nextPhyFileStartOffset的值被设置了并且offsetPy < nextPhyFileStartOffset，说明offsetPy
+                                // 这个位移所在的CommitLog文件已经被删除了，没必要执行下面的逻辑了
                                 if (offsetPy < nextPhyFileStartOffset)
                                     continue;
                             }
@@ -623,23 +641,30 @@ public class DefaultMessageStore implements MessageStore {
                             if (messageFilter != null
                                 && !messageFilter.isMatchedByConsumeQueue(isTagsCodeLegal ? tagsCode : null, extRet ? cqExtUnit : null)) {
                                 if (getResult.getBufferTotalSize() == 0) {
+                                    // 如果消息不匹配并且还没有成功拉取到消息，设置状态为NO_MATCHED_MESSAGE
                                     status = GetMessageStatus.NO_MATCHED_MESSAGE;
                                 }
 
                                 continue;
                             }
 
-                            // 从commitLog文件读取指定位移的消息
+                            // 从commitLog读取指定位移的消息，只要offsetPy的位移所在的CommitLog文件还存在（即还没有从磁盘中被删除）
+                            // 则selectResult就不会为空
                             SelectMappedBufferResult selectResult = this.commitLog.getMessage(offsetPy, sizePy);
                             if (null == selectResult) {
+                                // 如果结果为空并且这次拉取操作还没有读到过消息，说明当前遍历到的位移所在的CommitLog文件已经被删除了，
+                                // rocketmq是有定期删除CommitLog文件的逻辑的
                                 if (getResult.getBufferTotalSize() == 0) {
                                     status = GetMessageStatus.MESSAGE_WAS_REMOVING;
                                 }
 
+                                // 此时将nextPhyFileStartOffset设置为下一个CommitLog文件的起始位移，循环开始会跳过小于
+                                // nextPhyFileStartOffset的位移，这样就使得后续不存在对应CommitLog文件的位移会被跳过
                                 nextPhyFileStartOffset = this.commitLog.rollNextFile(offsetPy);
                                 continue;
                             }
 
+                            // 按照消息内容进行过滤
                             if (messageFilter != null
                                 && !messageFilter.isMatchedByCommitLog(selectResult.getByteBuffer().slice(), null)) {
                                 if (getResult.getBufferTotalSize() == 0) {
@@ -662,6 +687,7 @@ public class DefaultMessageStore implements MessageStore {
                             brokerStatsManager.recordDiskFallBehindSize(group, topic, queueId, fallBehind);
                         }
 
+                        // 更新下一次应该拉取的消息位移
                         nextBeginOffset = offset + (i / ConsumeQueue.CQ_STORE_UNIT_SIZE);
 
                         // 计算当前broker的消息的最大位移和这次拉取到的消息的位移的差值
@@ -669,8 +695,9 @@ public class DefaultMessageStore implements MessageStore {
                         // 计算允许保存在内存中的消息的大小，默认为物理内存的40%
                         long memory = (long) (StoreUtil.TOTAL_PHYSICAL_MEMORY_SIZE
                             * (this.messageStoreConfig.getAccessMessageInMemoryMaxRatio() / 100.0));
-                        // 如果diff > memory说明消费者消费消息的速度满足生产者生产消息的速度，导致拉取消息会从磁盘读取，此时设置
-                        // suggestPullingFromSlave为true表示建议之后的拉取请求从slave拉取
+                        // 如果diff > memory说明消费者拉取的消息的消费位移和broker保存的消息中位移最大的值的差大于broker能够用于
+                        // 保存消息的内存值，导致当前消费者拉取的消息需要从磁盘读取，此时设置suggestPullingFromSlave为true表示建议
+                        // 之后的拉取请求从slave拉取
                         getResult.setSuggestPullingFromSlave(diff > memory);
                     } finally {
                         bufferConsumeQueue.release();
@@ -683,6 +710,7 @@ public class DefaultMessageStore implements MessageStore {
                 }
             }
         } else {
+            // 看findConsumeQueue方法的实现，好像不会存在consumeQueue对象为空的情况
             status = GetMessageStatus.NO_MATCHED_LOGIC_QUEUE;
             nextBeginOffset = nextOffsetCorrection(offset, 0);
         }

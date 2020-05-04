@@ -441,6 +441,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
         };
 
         boolean commitOffsetEnable = false;
+        // 如果offsetStore中存在还没有提交的消息位移，则顺便在这次拉取请求中提交消息位移
         long commitOffsetValue = 0L;
         if (MessageModel.CLUSTERING == this.defaultMQPushConsumer.getMessageModel()) {
             commitOffsetValue = this.offsetStore.readOffset(pullRequest.getMessageQueue(), ReadOffsetType.READ_FROM_MEMORY);
@@ -475,9 +476,9 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 pullRequest.getNextOffset(),
                 this.defaultMQPushConsumer.getPullBatchSize(),
                 sysFlag,
-                commitOffsetValue,
-                BROKER_SUSPEND_MAX_TIME_MILLIS,
-                CONSUMER_TIMEOUT_MILLIS_WHEN_SUSPEND,
+                commitOffsetValue, // 需要顺便提交的消息位移的值
+                BROKER_SUSPEND_MAX_TIME_MILLIS, // 在broker中请求被挂起的最大时间，默认15s
+                CONSUMER_TIMEOUT_MILLIS_WHEN_SUSPEND, // 请求有可能被挂起在broker，所以请求的timeout需要设置的比较大，这里设置为30s
                 CommunicationMode.ASYNC, // 异步拉取消息
                 pullCallback
             );

@@ -255,11 +255,15 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                 requestHeader.getQueueId(), requestHeader.getQueueOffset(), requestHeader.getMaxMsgNums(), messageFilter);
         if (getMessageResult != null) {
             response.setRemark(getMessageResult.getStatus().name());
+            // nextBeginOffset为下一次拉取消息时应该拉取的起始位移
             responseHeader.setNextBeginOffset(getMessageResult.getNextBeginOffset());
+            // maxOffset为当前consumeQueue的消息位移的最小值
             responseHeader.setMinOffset(getMessageResult.getMinOffset());
+            // maxOffset为当前consumeQueue的消息位移的最大值
             responseHeader.setMaxOffset(getMessageResult.getMaxOffset());
 
-            // 设置建议下次从哪个broker拉取消息
+            // getMessageResult的suggestPullingFromSlave的值会在上面的getMessage方法中被更新，当拉取的消息不在内存中而在磁盘中时，
+            // suggestPullingFromSlave为true，此时建议消费者从slave读取消息
             if (getMessageResult.isSuggestPullingFromSlave()) {
                 // getWhichBrokerWhenConsumeSlowly方法默认返回1，也就是默认只建议slave中brokerId等于1的那个
                 responseHeader.setSuggestWhichBrokerId(subscriptionGroupConfig.getWhichBrokerWhenConsumeSlowly());
@@ -272,6 +276,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                 case SYNC_MASTER:
                     break;
                 case SLAVE:
+                    // 如果当前broker是slave并且被设置为不可读，则建议消费者从master读取消息
                     if (!this.brokerController.getBrokerConfig().isSlaveReadEnable()) {
                         // ResponseCode.PULL_RETRY_IMMEDIATELY表示消费者应该立即重新发送拉取消息请求
                         response.setCode(ResponseCode.PULL_RETRY_IMMEDIATELY);
@@ -282,27 +287,35 @@ public class PullMessageProcessor implements NettyRequestProcessor {
 
             if (this.brokerController.getBrokerConfig().isSlaveReadEnable()) {
                 // consume too slow ,redirect to another machine
+                // 这个在上面分析过了，消费者拉取的消息在磁盘中，这里建议消费者从slave拉取消息
                 if (getMessageResult.isSuggestPullingFromSlave()) {
                     responseHeader.setSuggestWhichBrokerId(subscriptionGroupConfig.getWhichBrokerWhenConsumeSlowly());
                 }
                 // consume ok
                 else {
+                    // 如果拉取的消息在内存，则建议消费者从master broker拉取消息，subscriptionGroupConfig.getBrokerId()默认返回
+                    // master id
                     responseHeader.setSuggestWhichBrokerId(subscriptionGroupConfig.getBrokerId());
                 }
             } else {
+                // 如果slave设置为不可读，则从master broker拉取消息
                 responseHeader.setSuggestWhichBrokerId(MixAll.MASTER_ID);
             }
 
+            // 根据拉取消息的结果设置response的code
             switch (getMessageResult.getStatus()) {
-                case FOUND:
+                case FOUND: // 拉取到消息了
                     response.setCode(ResponseCode.SUCCESS);
                     break;
-                case MESSAGE_WAS_REMOVING:
-                    // 让消费者立即重新发送拉取消息请求
+                case MESSAGE_WAS_REMOVING: // 位移对应的CommitLog文件被删除了
+                    // getMessageResult会包含下一次应该拉取的消息位移的起始值，当CommitLog文件被删除的情况下，让消费者立即重新发送
+                    // 拉取消息请求即可
                     response.setCode(ResponseCode.PULL_RETRY_IMMEDIATELY);
                     break;
                 case NO_MATCHED_LOGIC_QUEUE:
-                case NO_MESSAGE_IN_QUEUE:
+                case NO_MESSAGE_IN_QUEUE: // 当前队列没有保存消息
+                    // 没有保存消息的队列对其拉取消息时queueOffset正常应该为0，不为空可能是当前broker为slave，但是还没来得及同步
+                    // master的消息，这种情况拉取消息请求的消息位移应该修正
                     if (0 != requestHeader.getQueueOffset()) {
                         response.setCode(ResponseCode.PULL_OFFSET_MOVED);
 
@@ -315,25 +328,29 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                             requestHeader.getConsumerGroup()
                         );
                     } else {
+                        // PULL_NOT_FOUND就是正常的表示没有消息能够被拉取
                         response.setCode(ResponseCode.PULL_NOT_FOUND);
                     }
                     break;
-                case NO_MATCHED_MESSAGE:
+                case NO_MATCHED_MESSAGE: // 消息被过滤了，这个时候消费者应该立即从getMessageResult保存的nextBeginOffset开始再次拉取消息
                     response.setCode(ResponseCode.PULL_RETRY_IMMEDIATELY);
                     break;
-                case OFFSET_FOUND_NULL:
+                case OFFSET_FOUND_NULL: // 没有找到consumeQueue文件
                     response.setCode(ResponseCode.PULL_NOT_FOUND);
                     break;
-                case OFFSET_OVERFLOW_BADLY:
+                case OFFSET_OVERFLOW_BADLY: // 请求的消息位移超出broker的队列保存的最大位移了
+                    // 这个时候和NO_MESSAGE_IN_QUEUE一样需要修正消息位移
                     response.setCode(ResponseCode.PULL_OFFSET_MOVED);
                     // XXX: warn and notify me
                     log.info("the request offset: {} over flow badly, broker max offset: {}, consumer: {}",
                         requestHeader.getQueueOffset(), getMessageResult.getMaxOffset(), channel.remoteAddress());
                     break;
                 case OFFSET_OVERFLOW_ONE:
+                    // 请求的消息位移刚好等于broker的队列保存的消息的最大位移，说明从上次拉取消息后到这次拉取消息这两个请求之间，生产者
+                    // 没有产生消息
                     response.setCode(ResponseCode.PULL_NOT_FOUND);
                     break;
-                case OFFSET_TOO_SMALL:
+                case OFFSET_TOO_SMALL: // 消息位移小于broker的队列保存的最小位移，需要修正
                     response.setCode(ResponseCode.PULL_OFFSET_MOVED);
                     log.info("the request offset too small. group={}, topic={}, requestOffset={}, brokerMinOffset={}, clientIp={}",
                         requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueOffset(),
@@ -389,7 +406,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
 
             // 更新统计数据，设置response的消息数据
             switch (response.getCode()) {
-                case ResponseCode.SUCCESS:
+                case ResponseCode.SUCCESS: // 如果拉取消息成功，下面将消息写入响应
                     // 增加消费者组拉取的消息数量
                     this.brokerController.getBrokerStatsManager().incGroupGetNums(requestHeader.getConsumerGroup(), requestHeader.getTopic(),
                         getMessageResult.getMessageCount());
@@ -446,17 +463,24 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                         String topic = requestHeader.getTopic();
                         long offset = requestHeader.getQueueOffset();
                         int queueId = requestHeader.getQueueId();
+                        // 这个PullRequest对象和消费者端的PullRequest对象不是同一个，这里的PullRequest对象可以认为是被挂起的拉取
+                        // 消息请求的上下文
                         PullRequest pullRequest = new PullRequest(request, channel, pollingTimeMills,
                             this.brokerController.getMessageStore().now(), offset, subscriptionData, messageFilter);
                         // 将挂起请求保存到PullRequestHoldService
                         this.brokerController.getPullRequestHoldService().suspendPullRequest(topic, queueId, pullRequest);
+                        // 设置response为空，即没有需要返回给消费者的数据，这样消费者的拉取请求会一直等待broker的响应，而broker会通
+                        // 过PullRequestHoldService对象挂起当前拉取请求，在消费者指定的时间内定时尝试拉取消息，拉取到消息后或者超时
+                        // 后返回
                         response = null;
                         break;
                     }
 
                 case ResponseCode.PULL_RETRY_IMMEDIATELY:
                     break;
-                case ResponseCode.PULL_OFFSET_MOVED:
+                case ResponseCode.PULL_OFFSET_MOVED: // 表示请求的消息位移需要修正
+                    // 如果当前broker是master或者offsetCheckInSlave为true，发送一个broker自己创建的消息到OFFSET_MOVED_EVENT
+                    // 这个topic
                     if (this.brokerController.getMessageStoreConfig().getBrokerRole() != BrokerRole.SLAVE
                         || this.brokerController.getMessageStoreConfig().isOffsetCheckInSlave()) {
                         MessageQueue mq = new MessageQueue();
@@ -475,6 +499,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                             requestHeader.getTopic(), requestHeader.getConsumerGroup(), event.getOffsetRequest(), event.getOffsetNew(),
                             responseHeader.getSuggestWhichBrokerId());
                     } else {
+                        // 建议从master broker拉取消息
                         responseHeader.setSuggestWhichBrokerId(subscriptionGroupConfig.getBrokerId());
                         response.setCode(ResponseCode.PULL_RETRY_IMMEDIATELY);
                         log.warn("PULL_OFFSET_MOVED:none correction. topic={}, groupId={}, requestOffset={}, suggestBrokerId={}",
@@ -491,11 +516,14 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             response.setRemark("store getMessage return null");
         }
 
+        // 消费者会在其offsetStore存在未提交的消息位移时将消息位移设置为requestHeader.getCommitOffset()，并设置hasCommitOffsetFlag为
+        // true，表示这次拉取请求需要顺便提交消息位移，下面就是处理这种情况的
         boolean storeOffsetEnable = brokerAllowSuspend;
         storeOffsetEnable = storeOffsetEnable && hasCommitOffsetFlag;
         storeOffsetEnable = storeOffsetEnable
             && this.brokerController.getMessageStoreConfig().getBrokerRole() != BrokerRole.SLAVE;
         if (storeOffsetEnable) {
+            // ConsumerOffsetManager负责管理和持久化消费者提交的消费位移
             this.brokerController.getConsumerOffsetManager().commitOffset(RemotingHelper.parseChannelRemoteAddr(channel),
                 requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueId(), requestHeader.getCommitOffset());
         }
@@ -583,7 +611,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             @Override
             public void run() {
                 try {
-
+                    // 这里设置brokerAllowSuspend为false使得这次拉取请求即使没有能够被消费者消费的消息，也会返回而不会被挂起
                     final RemotingCommand response = PullMessageProcessor.this.processRequest(channel, request, false);
 
                     if (response != null) {

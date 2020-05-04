@@ -749,6 +749,7 @@ public class MQClientAPIImpl {
                 RemotingCommand response = responseFuture.getResponseCommand();
                 if (response != null) {
                     try {
+                        // 处理broker发回来的响应
                         PullResult pullResult = MQClientAPIImpl.this.processPullResponse(response);
                         assert pullResult != null;
                         pullCallback.onSuccess(pullResult);
@@ -783,16 +784,16 @@ public class MQClientAPIImpl {
         final RemotingCommand response) throws MQBrokerException, RemotingCommandException {
         PullStatus pullStatus = PullStatus.NO_NEW_MSG;
         switch (response.getCode()) {
-            case ResponseCode.SUCCESS:
+            case ResponseCode.SUCCESS: // 成功拉取到消息
                 pullStatus = PullStatus.FOUND;
                 break;
-            case ResponseCode.PULL_NOT_FOUND:
+            case ResponseCode.PULL_NOT_FOUND: // 没有需要消费的消息
                 pullStatus = PullStatus.NO_NEW_MSG;
                 break;
-            case ResponseCode.PULL_RETRY_IMMEDIATELY:
+            case ResponseCode.PULL_RETRY_IMMEDIATELY: // 应该立即重新发起拉取消息请求
                 pullStatus = PullStatus.NO_MATCHED_MSG;
                 break;
-            case ResponseCode.PULL_OFFSET_MOVED:
+            case ResponseCode.PULL_OFFSET_MOVED: // 消息位移需要修正
                 pullStatus = PullStatus.OFFSET_ILLEGAL;
                 break;
 

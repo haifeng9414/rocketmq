@@ -132,6 +132,9 @@ public class ConsumerOffsetManager extends ConfigManager {
             map.put(queueId, offset);
             this.offsetTable.put(key, map);
         } else {
+            // 只需要保存消费者提交的消费位移到内存即可，当前ConsumerOffsetManager类继承自ConfigManager类，而ConfigManager类实现了
+            // persist方法，broker在启动时，BrokerController类的initialize方法会开启定时任务，定时执行ConsumerOffsetManager的
+            // persist方法实现消费位移的持久化
             Long storeOffset = map.put(queueId, offset);
             if (storeOffset != null && offset < storeOffset) {
                 log.warn("[NOTIFYME]update consumer offset less than store. clientHost={}, key={}, queueId={}, requestOffset={}, storeOffset={}", clientHost, key, queueId, offset, storeOffset);
@@ -171,6 +174,7 @@ public class ConsumerOffsetManager extends ConfigManager {
         }
     }
 
+    // 序列化自身为json，json值将会被持久化到文件
     public String encode(final boolean prettyFormat) {
         return RemotingSerializable.toJson(this, prettyFormat);
     }

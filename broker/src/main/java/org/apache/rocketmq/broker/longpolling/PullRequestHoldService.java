@@ -74,6 +74,7 @@ public class PullRequestHoldService extends ServiceThread {
                 if (this.brokerController.getBrokerConfig().isLongPollingEnable()) {
                     this.waitForRunning(5 * 1000);
                 } else {
+                    // 没有开启长轮询则使用短轮询，默认1s
                     this.waitForRunning(this.brokerController.getBrokerConfig().getShortPollingTimeMills());
                 }
 
