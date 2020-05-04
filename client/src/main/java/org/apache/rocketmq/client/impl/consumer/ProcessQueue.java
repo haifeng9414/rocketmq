@@ -131,13 +131,19 @@ public class ProcessQueue {
             try {
                 int validMsgCnt = 0;
                 for (MessageExt msg : msgs) {
+                    // 以消息位移为key，消息为value
                     MessageExt old = msgTreeMap.put(msg.getQueueOffset(), msg);
+                    // old为空说明消息还没有被拉取过，否则说明消息被当前消费者重复拉取了
                     if (null == old) {
+                        // 记录非重复的消息数量
                         validMsgCnt++;
+                        // 更新拉取到的消息的位移的最大值
                         this.queueOffsetMax = msg.getQueueOffset();
+                        // 更新拉取到的消息总大小
                         msgSize.addAndGet(msg.getBody().length);
                     }
                 }
+                // 更新拉取到的消息的总数
                 msgCount.addAndGet(validMsgCnt);
 
                 if (!msgTreeMap.isEmpty() && !this.consuming) {
@@ -147,8 +153,10 @@ public class ProcessQueue {
 
                 if (!msgs.isEmpty()) {
                     MessageExt messageExt = msgs.get(msgs.size() - 1);
+                    // 获取broker中这次拉取消息请求对应的队列保存的消息的最大位移
                     String property = messageExt.getProperty(MessageConst.PROPERTY_MAX_OFFSET);
                     if (property != null) {
+                        // 计算上面获取到的broker中的位移值和这次拉取到的消息的最大位移值的差，相当于计算还有多少消息位移没有被消费
                         long accTotal = Long.parseLong(property) - messageExt.getQueueOffset();
                         if (accTotal > 0) {
                             this.msgAccCnt = accTotal;

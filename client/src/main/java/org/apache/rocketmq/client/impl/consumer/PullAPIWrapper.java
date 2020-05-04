@@ -71,12 +71,17 @@ public class PullAPIWrapper {
         final SubscriptionData subscriptionData) {
         PullResultExt pullResultExt = (PullResultExt) pullResult;
 
+        // 设置下一次从哪个broker拉取消息
         this.updatePullFromWhichNode(mq, pullResultExt.getSuggestWhichBrokerId());
+        // 如果成功拉取到消息
         if (PullStatus.FOUND == pullResult.getPullStatus()) {
+            // messageBinary就是响应的body
             ByteBuffer byteBuffer = ByteBuffer.wrap(pullResultExt.getMessageBinary());
+            // 获取拉取到的所有消息
             List<MessageExt> msgList = MessageDecoder.decodes(byteBuffer);
 
             List<MessageExt> msgListFilterAgain = msgList;
+            // 因为broker是基于tag的hashCode过滤的，所以这里需要对标签进行精确过滤
             if (!subscriptionData.getTagsSet().isEmpty() && !subscriptionData.isClassFilterMode()) {
                 msgListFilterAgain = new ArrayList<MessageExt>(msgList.size());
                 for (MessageExt msg : msgList) {
@@ -88,27 +93,34 @@ public class PullAPIWrapper {
                 }
             }
 
+            // 如果存在hook则调用
             if (this.hasHook()) {
                 FilterMessageContext filterMessageContext = new FilterMessageContext();
                 filterMessageContext.setUnitMode(unitMode);
+                // msgListFilterAgain包含了在上面根据标签精确过滤后拉取到的消息
                 filterMessageContext.setMsgList(msgListFilterAgain);
                 this.executeHook(filterMessageContext);
             }
 
+            // 遍历经过过滤后最终的消息
             for (MessageExt msg : msgListFilterAgain) {
+                // 如果是事物消息的话
                 String traFlag = msg.getProperty(MessageConst.PROPERTY_TRANSACTION_PREPARED);
                 if (Boolean.parseBoolean(traFlag)) {
                     msg.setTransactionId(msg.getProperty(MessageConst.PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX));
                 }
+                // 将broker中保存在这次拉取消息请求对应的队列的消息的最小位移和最大位移保存到消息的属性中
                 MessageAccessor.putProperty(msg, MessageConst.PROPERTY_MIN_OFFSET,
                     Long.toString(pullResult.getMinOffset()));
                 MessageAccessor.putProperty(msg, MessageConst.PROPERTY_MAX_OFFSET,
                     Long.toString(pullResult.getMaxOffset()));
             }
 
+            // 更新拉取消息结果中消息的结果集
             pullResultExt.setMsgFoundList(msgListFilterAgain);
         }
 
+        // 清除响应的body
         pullResultExt.setMessageBinary(null);
 
         return pullResult;
@@ -186,14 +198,14 @@ public class PullAPIWrapper {
             requestHeader.setConsumerGroup(this.consumerGroup);
             requestHeader.setTopic(mq.getTopic());
             requestHeader.setQueueId(mq.getQueueId());
-            requestHeader.setQueueOffset(offset);
-            requestHeader.setMaxMsgNums(maxNums);
-            requestHeader.setSysFlag(sysFlagInner);
-            requestHeader.setCommitOffset(commitOffset);
-            requestHeader.setSuspendTimeoutMillis(brokerSuspendMaxTimeMillis);
-            requestHeader.setSubscription(subExpression);
-            requestHeader.setSubVersion(subVersion);
-            requestHeader.setExpressionType(expressionType);
+            requestHeader.setQueueOffset(offset); // 想要拉取的消息的位移
+            requestHeader.setMaxMsgNums(maxNums); // 最多拉取多少消息
+            requestHeader.setSysFlag(sysFlagInner); // 包含一些标识位，如果是否可挂起请求、是否提交消费位移、是否存在过滤表达式
+            requestHeader.setCommitOffset(commitOffset); // 需要顺便提交的消费位移的值
+            requestHeader.setSuspendTimeoutMillis(brokerSuspendMaxTimeMillis); // 挂起的超时时间
+            requestHeader.setSubscription(subExpression); // 订阅的标签
+            requestHeader.setSubVersion(subVersion); // 订阅配置的版本
+            requestHeader.setExpressionType(expressionType); // 消息过滤类型
 
             String brokerAddr = findBrokerResult.getBrokerAddr();
             // 如果是基于class的消息过滤，则拉取消息的地址是filterServer而不是broker，这里从路由信息中获取broker对应的
