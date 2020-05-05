@@ -45,6 +45,7 @@ public class ProcessQueue {
     private final static long PULL_MAX_IDLE_TIME = Long.parseLong(System.getProperty("rocketmq.client.pull.pullMaxIdleTime", "120000"));
     private final InternalLogger log = ClientLogger.getLog();
     private final ReadWriteLock lockTreeMap = new ReentrantReadWriteLock();
+    // msgTreeMap保存着消费者拉取到的消息中还没有被消费和正在被消费但还没有消费完成的消息
     private final TreeMap<Long, MessageExt> msgTreeMap = new TreeMap<Long, MessageExt>();
     private final AtomicLong msgCount = new AtomicLong();
     private final AtomicLong msgSize = new AtomicLong();
@@ -181,6 +182,7 @@ public class ProcessQueue {
             this.lockTreeMap.readLock().lockInterruptibly();
             try {
                 if (!this.msgTreeMap.isEmpty()) {
+                    // 获取正在消费或者等待被消息的消息的最小位移和最大位移的差
                     return this.msgTreeMap.lastKey() - this.msgTreeMap.firstKey();
                 }
             } finally {
@@ -201,17 +203,25 @@ public class ProcessQueue {
             this.lastConsumeTimestamp = now;
             try {
                 if (!msgTreeMap.isEmpty()) {
+                    // queueOffsetMax是ProcessQueue保存的消息中位移的最大值
                     result = this.queueOffsetMax + 1;
                     int removedCnt = 0;
+                    // 遍历消息，从msgTreeMap中移除消息
                     for (MessageExt msg : msgs) {
                         MessageExt prev = msgTreeMap.remove(msg.getQueueOffset());
                         if (prev != null) {
                             removedCnt--;
+                            // 减少ProcessQueue保存的消息总大小的值
                             msgSize.addAndGet(0 - msg.getBody().length);
                         }
                     }
+                    // 减少ProcessQueue保存的消息总数量的值
                     msgCount.addAndGet(removedCnt);
 
+                    // 如果msgTreeMap不为空，说明还有消息正在等待消费或正在被消费，此时返回这些消息的最小位移
+                    // 通过这种逻辑，使得removeMessage方法要么返回-1，要么返回正在等待消费或正在被消费的消息
+                    // 的最小位移，要么在msgTreeMap为空，即消息都被消费完成后，返回从ProcessQueue对应的队列
+                    // 拉取到的消息的最大位移值
                     if (!msgTreeMap.isEmpty()) {
                         result = msgTreeMap.firstKey();
                     }
