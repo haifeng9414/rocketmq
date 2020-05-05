@@ -123,6 +123,7 @@ public class ConsumerGroupInfo {
         ClientChannelInfo infoOld = this.channelInfoTable.get(infoNew.getChannel());
         if (null == infoOld) {
             ClientChannelInfo prev = this.channelInfoTable.put(infoNew.getChannel(), infoNew);
+            // 这个消费者是第一次发送心跳
             if (null == prev) {
                 log.info("new consumer connected, group: {} {} {} channel: {}", this.groupName, consumeType,
                     messageModel, infoNew.toString());
@@ -131,6 +132,7 @@ public class ConsumerGroupInfo {
 
             infoOld = infoNew;
         } else {
+            // 理论上不会出现这个情况，即某个消费者的clientId在不同的心跳请求中的值不同
             if (!infoOld.getClientId().equals(infoNew.getClientId())) {
                 log.error("[BUG] consumer channel exist in broker, but clientId not equal. GROUP: {} OLD: {} NEW: {} ",
                     this.groupName,
@@ -149,6 +151,7 @@ public class ConsumerGroupInfo {
     public boolean updateSubscription(final Set<SubscriptionData> subList) {
         boolean updated = false;
 
+        // 遍历当前消费者的订阅配置，如果版本变化了则更新
         for (SubscriptionData sub : subList) {
             SubscriptionData old = this.subscriptionTable.get(sub.getTopic());
             if (old == null) {
@@ -160,6 +163,7 @@ public class ConsumerGroupInfo {
                         sub.toString());
                 }
             } else if (sub.getSubVersion() > old.getSubVersion()) {
+                // 如果消费者是push模式
                 if (this.consumeType == ConsumeType.CONSUME_PASSIVELY) {
                     log.info("subscription changed, group: {} OLD: {} NEW: {}",
                         this.groupName,
@@ -172,6 +176,8 @@ public class ConsumerGroupInfo {
             }
         }
 
+        // 遍历已存在的订阅配置，如果这次的心跳请求中不包含已经保存在subscriptionTable属性中的某个topic的配置，则将该topic从
+        // subscriptionTable属性删除，即消费者不再消费该topic了
         Iterator<Entry<String, SubscriptionData>> it = this.subscriptionTable.entrySet().iterator();
         while (it.hasNext()) {
             Entry<String, SubscriptionData> next = it.next();
@@ -199,6 +205,7 @@ public class ConsumerGroupInfo {
 
         this.lastUpdateTimestamp = System.currentTimeMillis();
 
+        // 如果订阅配置是第一次被保存，或者订阅的topic列表有变化，则返回true
         return updated;
     }
 

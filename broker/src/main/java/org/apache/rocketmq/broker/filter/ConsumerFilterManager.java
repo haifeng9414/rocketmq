@@ -102,7 +102,10 @@ public class ConsumerFilterManager extends ConfigManager {
     }
 
     public void register(final String consumerGroup, final Collection<SubscriptionData> subList) {
+        // 遍历消费者发送的心跳中带来的订阅配置
         for (SubscriptionData subscriptionData : subList) {
+            // 如果当前订阅配置没有过滤配置，或者过滤的方式为TAG，则直接返回，否则说明过滤的方式为SQL92，此时会为过滤表达式创建布隆过滤器
+            // 并和过滤表达式一起保存到filterDataByTopic属性
             register(
                 subscriptionData.getTopic(),
                 consumerGroup,
@@ -113,6 +116,7 @@ public class ConsumerFilterManager extends ConfigManager {
         }
 
         // make illegal topic dead.
+        // ConsumerFilterData对象表示一个消费者组对一个topic的过滤配置
         Collection<ConsumerFilterData> groupFilterData = getByGroup(consumerGroup);
 
         Iterator<ConsumerFilterData> iterator = groupFilterData.iterator();
@@ -127,6 +131,8 @@ public class ConsumerFilterManager extends ConfigManager {
                 }
             }
 
+            // 设置当前消费者组不再订阅的topic的SubscriptionData对象的deadTime属性，这里不直接删除该配置是因为组内的其他的消费者
+            // 成员可能还要用，清除操作会在当前ConsumerFilterManager对象被定时任务持久化时做
             if (!exist && !filterData.isDead()) {
                 filterData.setDeadTime(System.currentTimeMillis());
                 log.info("Consumer filter changed: {}, make illegal topic dead:{}", consumerGroup, filterData);

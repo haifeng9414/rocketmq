@@ -99,7 +99,7 @@ public class ConsumerManager {
         ConsumeType consumeType, MessageModel messageModel, ConsumeFromWhere consumeFromWhere,
         final Set<SubscriptionData> subList, boolean isNotifyConsumerIdsChangedEnable) {
 
-        // 如果不存在当前消费者组的ConsumerGroupInfo则新建一个
+        // ConsumerGroupInfo对象保存了一个消费者组内消费者的配置，如果不存在当前消费者组的ConsumerGroupInfo则新建一个
         ConsumerGroupInfo consumerGroupInfo = this.consumerTable.get(group);
         if (null == consumerGroupInfo) {
             ConsumerGroupInfo tmp = new ConsumerGroupInfo(group, consumeType, messageModel, consumeFromWhere);
