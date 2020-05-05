@@ -34,10 +34,10 @@ public interface AllocateMessageQueueStrategy {
      * @return The allocate result of given strategy
      */
     List<MessageQueue> allocate(
-        final String consumerGroup,
-        final String currentCID,
-        final List<MessageQueue> mqAll,
-        final List<String> cidAll
+            final String consumerGroup,
+            final String currentCID,
+            final List<MessageQueue> mqAll,
+            final List<String> cidAll
     );
 
     /**

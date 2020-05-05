@@ -140,6 +140,7 @@ public abstract class RebalanceImpl {
             requestBody.getMqSet().add(mq);
 
             try {
+                // 向broker发送锁住队列的请求
                 Set<MessageQueue> lockedMq =
                     this.mQClientFactory.getMQClientAPIImpl().lockBatchMQ(findBrokerResult.getBrokerAddr(), requestBody, 1000);
                 for (MessageQueue mmqq : lockedMq) {
@@ -164,6 +165,7 @@ public abstract class RebalanceImpl {
         return false;
     }
 
+    // 向broker发送请求锁住所有当前消费者负责消费的队列，ConsumeMessageOrderlyService对象启动时会调用该方法
     public void lockAll() {
         HashMap<String, Set<MessageQueue>> brokerMqs = this.buildProcessQueueTableByBrokerName();
 
@@ -330,6 +332,7 @@ public abstract class RebalanceImpl {
         }
     }
 
+    // 根据当前的订阅配置确定消费者正在订阅的topic列表，从processQueueTable中移除不再订阅的topic对应的ProcessQueue
     private void truncateMessageQueueNotMyTopic() {
         Map<String, SubscriptionData> subTable = this.getSubscriptionInner();
 

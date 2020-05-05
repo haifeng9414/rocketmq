@@ -160,7 +160,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     AllocateMessageQueueAveragely 取模平均
     AllocateMessageQueueAveragelyByCircle 环形平均
     AllocateMessageQueueByConfig 使用指定的messageQueueList
-    AllocateMessageQueueByMachineRoom 按机房，从源码上看，必须和阿里的某些broker命名一致才行
+    AllocateMessageQueueByMachineRoom 按机房分配
     AllocateMessageQueueConsistentHash 一致性哈希算法
 
     可以实现org.apache.rocketmq.client.consumer.rebalance.AllocateMessageQueueStrategy类自行扩展算法
