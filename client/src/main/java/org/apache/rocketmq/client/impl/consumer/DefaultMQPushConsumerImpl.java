@@ -372,7 +372,8 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                                 // 拉取到的消息总数量、总大小、还有多少消息没有被消费等
                                 boolean dispatchToConsume = processQueue.putMessage(pullResult.getMsgFoundList());
                                 // consumeMessageService就是ConsumeMessageConcurrentlyService或者ConsumeMessageOrderlyService
-                                // 并发或者按顺序消费消息
+                                // 并发或者按顺序消费消息，这里的submitConsumeRequest方法会通过线程池异步消费消息，所以不用等待消息消费
+                                // 完成就能够在下面决定是否立即再次拉取消息
                                 DefaultMQPushConsumerImpl.this.consumeMessageService.submitConsumeRequest(
                                     pullResult.getMsgFoundList(),
                                     processQueue,

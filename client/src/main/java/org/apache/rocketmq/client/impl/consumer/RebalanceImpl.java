@@ -319,8 +319,7 @@ public abstract class RebalanceImpl {
                             "rebalanced result changed. allocateMessageQueueStrategyName={}, group={}, topic={}, clientId={}, mqAllSize={}, cidAllSize={}, rebalanceResultSize={}, rebalanceResultSet={}",
                             strategy.getName(), consumerGroup, topic, this.mQClientFactory.getClientId(), mqSet.size(), cidAll.size(),
                             allocateResultSet.size(), allocateResultSet);
-                        // messageQueueChanged方法会根据这次负载均衡的结果更新流控的配置，并发送心跳给broker（也就是告诉broker这次
-                        // 负载均衡的结果）
+                        // messageQueueChanged方法会根据这次负载均衡的结果更新流控的配置，并发送心跳给broker
                         this.messageQueueChanged(topic, mqSet, allocateResultSet);
                     }
                 }

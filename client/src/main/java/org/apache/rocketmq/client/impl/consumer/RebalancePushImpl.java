@@ -88,7 +88,7 @@ public class RebalancePushImpl extends RebalanceImpl {
         }
 
         // notify broker
-        // 想broker发送心跳，心跳中会包含消费者的消息配置，即当前消费者负载均衡后实际分配到的MessageQueue（也就是broker中的consumeQueue）
+        // 向broker发送心跳，因为当前消费者的SubscriptionData的版本变化了，需要告知broker
         this.getmQClientFactory().sendHeartbeatToAllBrokerWithLock();
     }
 

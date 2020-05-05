@@ -775,6 +775,7 @@ public class MQClientInstance {
                 consumerData.setConsumeType(impl.consumeType());
                 consumerData.setMessageModel(impl.messageModel());
                 consumerData.setConsumeFromWhere(impl.consumeFromWhere());
+                // 获取消费者订阅配置
                 consumerData.getSubscriptionDataSet().addAll(impl.subscriptions());
                 consumerData.setUnitMode(impl.isUnitMode());
 
