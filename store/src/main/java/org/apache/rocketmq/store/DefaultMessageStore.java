@@ -1574,12 +1574,12 @@ public class DefaultMessageStore implements MessageStore {
         public void dispatch(DispatchRequest request) {
             final int tranType = MessageSysFlag.getTransactionValue(request.getSysFlag());
             switch (tranType) {
-                case MessageSysFlag.TRANSACTION_NOT_TYPE:
-                case MessageSysFlag.TRANSACTION_COMMIT_TYPE:
+                case MessageSysFlag.TRANSACTION_NOT_TYPE: // 如果是普通的消息
+                case MessageSysFlag.TRANSACTION_COMMIT_TYPE: // 如果是事务提交的消息
                     DefaultMessageStore.this.putMessagePositionInfo(request);
                     break;
-                case MessageSysFlag.TRANSACTION_PREPARED_TYPE:
-                case MessageSysFlag.TRANSACTION_ROLLBACK_TYPE:
+                case MessageSysFlag.TRANSACTION_PREPARED_TYPE: // 如果是事务的半消息
+                case MessageSysFlag.TRANSACTION_ROLLBACK_TYPE: // 如果是事务的回滚消息
                     break;
             }
         }
@@ -1589,6 +1589,7 @@ public class DefaultMessageStore implements MessageStore {
 
         @Override
         public void dispatch(DispatchRequest request) {
+            // 是否开启消息索引，默认为true
             if (DefaultMessageStore.this.messageStoreConfig.isMessageIndexEnable()) {
                 DefaultMessageStore.this.indexService.buildIndex(request);
             }
@@ -1896,6 +1897,7 @@ public class DefaultMessageStore implements MessageStore {
 
     class ReputMessageService extends ServiceThread {
 
+        // 保存已经处理过的消息的最大位移
         private volatile long reputFromOffset = 0;
 
         public long getReputFromOffset() {
@@ -1933,13 +1935,16 @@ public class DefaultMessageStore implements MessageStore {
         }
 
         private void doReput() {
+            // 如果已经被ReputMessageService类处理的位移小于commitlog文件的最小位移，则修正reputFromOffset的值
             if (this.reputFromOffset < DefaultMessageStore.this.commitLog.getMinOffset()) {
                 log.warn("The reputFromOffset={} is smaller than minPyOffset={}, this usually indicate that the dispatch behind too much and the commitlog has expired.",
                     this.reputFromOffset, DefaultMessageStore.this.commitLog.getMinOffset());
                 this.reputFromOffset = DefaultMessageStore.this.commitLog.getMinOffset();
             }
+            // 当reputFromOffset小于commitlog文件保存的消息的最大位移时
             for (boolean doNext = true; this.isCommitLogAvailable() && doNext; ) {
 
+                // duplicationEnable默认为false，这里用到的confirmOffset属性不知道啥意思，没有更新该属性的地方
                 if (DefaultMessageStore.this.getMessageStoreConfig().isDuplicationEnable()
                     && this.reputFromOffset >= DefaultMessageStore.this.getConfirmOffset()) {
                     break;

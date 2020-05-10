@@ -55,6 +55,7 @@ public class IndexService {
     }
 
     public boolean load(final boolean lastExitOK) {
+        // 启动时加载所有已存在的index文件并保存到indexFileList中
         File dir = new File(this.storePath);
         File[] files = dir.listFiles();
         if (files != null) {
@@ -65,7 +66,10 @@ public class IndexService {
                     IndexFile f = new IndexFile(file.getPath(), this.hashSlotNum, this.indexNum, 0, 0);
                     f.load();
 
+                    // 如果上次是异常退出
                     if (!lastExitOK) {
+                        // 如果当前index文件保存的索引对应的消息的最大创建时间大于StoreCheckpoint记录的值，说明当前文件对应的IndexFile
+                        // 对象在上次退出时还没有执行flush方法，此时删除该文件，ReputMessageService类会重新构建index文件
                         if (f.getEndTimestamp() > this.defaultMessageStore.getStoreCheckpoint()
                             .getIndexMsgTimestamp()) {
                             f.destroy(0);
@@ -298,11 +302,15 @@ public class IndexService {
         {
             this.readWriteLock.readLock().lock();
             if (!this.indexFileList.isEmpty()) {
+                // 获取最新的index文件
                 IndexFile tmp = this.indexFileList.get(this.indexFileList.size() - 1);
+                // 如果文件没有写完
                 if (!tmp.isWriteFull()) {
                     indexFile = tmp;
                 } else {
+                    // 获取index文件中保存的消息的最大位移
                     lastUpdateEndPhyOffset = tmp.getEndPhyOffset();
+                    // 否则获取index文件中保存的消息的最大保存时间
                     lastUpdateIndexTimestamp = tmp.getEndTimestamp();
                     prevIndexFile = tmp;
                 }
@@ -313,9 +321,11 @@ public class IndexService {
 
         if (indexFile == null) {
             try {
+                // index文件保存的路径为user.home/index/当前时间，这里根据当前时间获取即将新建的index文件的文件名称
                 String fileName =
                     this.storePath + File.separator
                         + UtilAll.timeMillisToHumanString(System.currentTimeMillis());
+                // 新建一个IndexFile对象表示index文件
                 indexFile =
                     new IndexFile(fileName, this.hashSlotNum, this.indexNum, lastUpdateEndPhyOffset,
                         lastUpdateIndexTimestamp);
