@@ -6,6 +6,7 @@
   - [remoting模块的作用和实现](my_doc/公共组件/remoting模块的作用和实现.md)
 - [Namesrv的实现](namesrv/README.md)
 - [Broker的实现](broker/README.md)
+- [mqadmin命令的实现](tools/mqadmin命令的实现.md)
 
 ## Apache RocketMQ 
 [![Build Status](https://travis-ci.org/apache/rocketmq.svg?branch=master)](https://travis-ci.org/apache/rocketmq) [![Coverage Status](https://coveralls.io/repos/github/apache/rocketmq/badge.svg?branch=master)](https://coveralls.io/github/apache/rocketmq?branch=master)

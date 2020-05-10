@@ -341,14 +341,17 @@ public class CommitLog {
                 // Timing message processing
                 {
                     String t = propertiesMap.get(MessageConst.PROPERTY_DELAY_TIME_LEVEL);
+                    // 如果topic是定时消息的topic并且当前消息的延迟级别属性不为空
                     if (ScheduleMessageService.SCHEDULE_TOPIC.equals(topic) && t != null) {
                         int delayLevel = Integer.parseInt(t);
 
+                        // 延迟级别不能超过最大值
                         if (delayLevel > this.defaultMessageStore.getScheduleMessageService().getMaxDelayLevel()) {
                             delayLevel = this.defaultMessageStore.getScheduleMessageService().getMaxDelayLevel();
                         }
 
                         if (delayLevel > 0) {
+                            // computeDeliverTimestamp返回消息应该被消费的具体时间，用tagsCode保存该时间戳
                             tagsCode = this.defaultMessageStore.getScheduleMessageService().computeDeliverTimestamp(delayLevel,
                                 storeTimestamp);
                         }
@@ -1499,6 +1502,7 @@ public class CommitLog {
                 case MessageSysFlag.TRANSACTION_NOT_TYPE:
                 case MessageSysFlag.TRANSACTION_COMMIT_TYPE:
                     // The next update ConsumeQueue information
+                    // 更新当前队列已经保存的消息数量
                     CommitLog.this.topicQueueTable.put(key, ++queueOffset);
                     break;
                 default:

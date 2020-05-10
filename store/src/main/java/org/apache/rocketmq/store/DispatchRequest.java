@@ -20,12 +20,19 @@ import java.util.Map;
 
 public class DispatchRequest {
     private final String topic;
+    // 消息对应的队列的id，如0、1、2等
     private final int queueId;
+    // 消息在commitlog文件的offset
     private final long commitLogOffset;
+    // 消息大小
     private int msgSize;
+    // 消息标签的hashCode，如果当前消息被保存到定时消息的topic，则该属性为消息应该被消费的时间戳
     private final long tagsCode;
+    // 消息被保存到commitlog文件时的时间戳
     private final long storeTimestamp;
+    // 表示DispatchRequest对象对应的消息被保存到CommitLog文件时，消息对应的队列已经保存的消息数量
     private final long consumeQueueOffset;
+    // 消息的key
     private final String keys;
     private final boolean success;
     private final String uniqKey;
@@ -33,6 +40,7 @@ public class DispatchRequest {
     private final int sysFlag;
     private final long preparedTransactionOffset;
     private final Map<String, String> propertiesMap;
+    // 消息对应的topic在broker中的bitmap数据
     private byte[] bitMap;
 
     private int bufferSize = -1;//the buffer size maybe larger than the msg size if the message is wrapped by something

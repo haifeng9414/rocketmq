@@ -384,16 +384,20 @@ public class ConsumeQueue {
         return this.minLogicOffset / CQ_STORE_UNIT_SIZE;
     }
 
+    // DispatchRequest对象包含了一个被保存到CommitLog文件的消息的全部信息
     public void putMessagePositionInfoWrapper(DispatchRequest request) {
+        // 重试写入的次数
         final int maxRetries = 30;
+        // 根据RunningFlags的各种标志位判断当前是否能够执行consumequeue文件的写入操作
         boolean canWrite = this.defaultMessageStore.getRunningFlags().isCQWriteable();
         for (int i = 0; i < maxRetries && canWrite; i++) {
             long tagsCode = request.getTagsCode();
+            // 如果开启的ConsumeQueueExt，则会额外写一些信息到consumequeue_ext文件
             if (isExtWriteEnable()) {
                 ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
-                cqExtUnit.setFilterBitMap(request.getBitMap());
-                cqExtUnit.setMsgStoreTime(request.getStoreTimestamp());
-                cqExtUnit.setTagsCode(request.getTagsCode());
+                cqExtUnit.setFilterBitMap(request.getBitMap()); // 当前消息的topic对应的bitmap数据
+                cqExtUnit.setMsgStoreTime(request.getStoreTimestamp()); // 消息被保存到broker的时间（CommitLog对象的putMessage方法设置的）
+                cqExtUnit.setTagsCode(request.getTagsCode()); // 消息标签的hash值，如果消息被保存在定时消息的topic，则tagsCode属性为消息应该被消费的时间戳
 
                 long extAddr = this.consumeQueueExt.put(cqExtUnit);
                 if (isExtAddr(extAddr)) {
@@ -403,6 +407,7 @@ public class ConsumeQueue {
                         topic, queueId, request.getCommitLogOffset());
                 }
             }
+            // 保存消息的位移、消息大小、tagsCode到consumequeue文件
             boolean result = this.putMessagePositionInfo(request.getCommitLogOffset(),
                 request.getMsgSize(), tagsCode, request.getConsumeQueueOffset());
             if (result) {
@@ -410,14 +415,17 @@ public class ConsumeQueue {
                     this.defaultMessageStore.getMessageStoreConfig().isEnableDLegerCommitLog()) {
                     this.defaultMessageStore.getStoreCheckpoint().setPhysicMsgTimestamp(request.getStoreTimestamp());
                 }
+                // 更新checkpoint文件的logicsMsgTimestamp记录
                 this.defaultMessageStore.getStoreCheckpoint().setLogicsMsgTimestamp(request.getStoreTimestamp());
                 return;
             } else {
+                // 写入失败记录日志
                 // XXX: warn and notify me
                 log.warn("[BUG]put commit log position info to " + topic + ":" + queueId + " " + request.getCommitLogOffset()
                     + " failed, retry " + i + " times");
 
                 try {
+                    // sleep 1s后重试
                     Thread.sleep(1000);
                 } catch (InterruptedException e) {
                     log.warn("", e);
@@ -433,40 +441,55 @@ public class ConsumeQueue {
     private boolean putMessagePositionInfo(final long offset, final int size, final long tagsCode,
         final long cqOffset) {
 
+        // 如果当前消息的位移小于已经保存的消息的最大位移，则认为消息被保存过了，直接返回true
         if (offset + size <= this.maxPhysicOffset) {
             log.warn("Maybe try to build consume queue repeatedly maxPhysicOffset={} phyOffset={}", maxPhysicOffset, offset);
             return true;
         }
 
         this.byteBufferIndex.flip();
+        // consumequeue中一条记录固定20字节
         this.byteBufferIndex.limit(CQ_STORE_UNIT_SIZE);
+        // 保存消息位移
         this.byteBufferIndex.putLong(offset);
+        // 保存消息大小
         this.byteBufferIndex.putInt(size);
+        // 保存消息标签的hash
         this.byteBufferIndex.putLong(tagsCode);
 
+        // cqOffset属性为消息被保存到commitlog文件时，其对应的队列已经保存的消息数量，这里将cqOffset乘以consumequeue文件内每条记录
+        // 的大小，就能得到该消息在consumequeue中的位移，同时也保证了consumequeue内记录的顺序和消息被保存到commitlog文件的顺序一致
         final long expectLogicOffset = cqOffset * CQ_STORE_UNIT_SIZE;
 
+        // 获取最小的consumequeue文件
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile(expectLogicOffset);
         if (mappedFile != null) {
 
+            // 如果当前consumequeue文件是当前队列的文件夹下第一个被创建的文件，并且当前消息的位置大于0，则在之前的位置填上空白
+            // 出现这种情况可能是当前队列对应的consumequeue文件都被删除了
             if (mappedFile.isFirstCreateInQueue() && cqOffset != 0 && mappedFile.getWrotePosition() == 0) {
                 this.minLogicOffset = expectLogicOffset;
                 this.mappedFileQueue.setFlushedWhere(expectLogicOffset);
                 this.mappedFileQueue.setCommittedWhere(expectLogicOffset);
+                // 将expectLogicOffset之前的位置填上空白
                 this.fillPreBlank(mappedFile, expectLogicOffset);
                 log.info("fill pre blank space " + mappedFile.getFileName() + " " + expectLogicOffset + " "
                     + mappedFile.getWrotePosition());
             }
 
             if (cqOffset != 0) {
+                // 获取当前已经保存的字节数
                 long currentLogicOffset = mappedFile.getWrotePosition() + mappedFile.getFileFromOffset();
 
+                // expectLogicOffset < currentLogicOffset说明是重复写入，直接返回true
                 if (expectLogicOffset < currentLogicOffset) {
                     log.warn("Build  consume queue repeatedly, expectLogicOffset: {} currentLogicOffset: {} Topic: {} QID: {} Diff: {}",
                         expectLogicOffset, currentLogicOffset, this.topic, this.queueId, expectLogicOffset - currentLogicOffset);
                     return true;
                 }
 
+                // 因为expectLogicOffset = cqOffset * CQ_STORE_UNIT_SIZE，而cqOffset是从0开始计数的，所以理论上因为expectLogicOffset
+                // 应该等于currentLogicOffset
                 if (expectLogicOffset != currentLogicOffset) {
                     LOG_ERROR.warn(
                         "[BUG]logic queue order maybe wrong, expectLogicOffset: {} currentLogicOffset: {} Topic: {} QID: {} Diff: {}",
@@ -478,7 +501,9 @@ public class ConsumeQueue {
                     );
                 }
             }
+            // 更新最大位移值
             this.maxPhysicOffset = offset + size;
+            // 保存消息的consumequeue记录
             return mappedFile.appendMessage(this.byteBufferIndex.array());
         }
         return false;

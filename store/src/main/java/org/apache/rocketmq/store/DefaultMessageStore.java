@@ -1986,6 +1986,9 @@ public class DefaultMessageStore implements MessageStore {
                                     // 如果是master broker并且开启了长轮询
                                     if (BrokerRole.SLAVE != DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole()
                                         && DefaultMessageStore.this.brokerConfig.isLongPollingEnable()) {
+                                        // 通知messageArrivingListener有消息到达了，默认messageArrivingListener会执行
+                                        // PullRequestHoldService类的notifyMessageArriving方法尝试判断是否有被挂起的消费者拉
+                                        // 取消息请求，如果有则判断到达的消息是否满足拉取请求，满足则取消挂起使得拉取消息请求返回
                                         DefaultMessageStore.this.messageArrivingListener.arriving(dispatchRequest.getTopic(),
                                             dispatchRequest.getQueueId(), dispatchRequest.getConsumeQueueOffset() + 1,
                                             dispatchRequest.getTagsCode(), dispatchRequest.getStoreTimestamp(),

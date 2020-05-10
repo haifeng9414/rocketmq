@@ -27,13 +27,18 @@ import org.apache.rocketmq.common.constant.LoggerName;
 import org.apache.rocketmq.logging.InternalLogger;
 import org.apache.rocketmq.logging.InternalLoggerFactory;
 
+// 用于保存commitlog、consumequeue、index这3个类型文件的更新时间（不考虑topic和queueId，所有的topic和queue的写入都可能更新
+// 该对象），并能够被持久化到checkpoint文件
 public class StoreCheckpoint {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private final RandomAccessFile randomAccessFile;
     private final FileChannel fileChannel;
     private final MappedByteBuffer mappedByteBuffer;
+    // commitlog文件的更新时间
     private volatile long physicMsgTimestamp = 0;
+    // consumequeue文件的更新时间
     private volatile long logicsMsgTimestamp = 0;
+    // index文件的更新时间
     private volatile long indexMsgTimestamp = 0;
 
     public StoreCheckpoint(final String scpPath) throws IOException {

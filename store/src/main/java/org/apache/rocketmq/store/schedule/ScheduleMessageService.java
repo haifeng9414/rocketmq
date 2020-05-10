@@ -104,11 +104,14 @@ public class ScheduleMessageService extends ConfigManager {
     }
 
     public long computeDeliverTimestamp(final int delayLevel, final long storeTimestamp) {
+        // 获取延时级别对应的毫秒数
         Long time = this.delayLevelTable.get(delayLevel);
         if (time != null) {
+            // 延时毫秒数加上消息的保存时间
             return time + storeTimestamp;
         }
 
+        // 找不到对应的延迟级别则默认1s
         return storeTimestamp + 1000;
     }
 
