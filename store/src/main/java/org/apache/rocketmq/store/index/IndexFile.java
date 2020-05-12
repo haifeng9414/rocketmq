@@ -89,10 +89,15 @@ public class IndexFile {
         return this.mappedFile.destroy(intervalForcibly);
     }
 
+    // key为topic#{key}的形式，{key}可以是，phyOffset为消息的位移，storeTimestamp为消息保存到broker的时间
     public boolean putKey(final String key, final long phyOffset, final long storeTimestamp) {
+        // this.indexNum为索引数量的最大值，默认500W * 4
         if (this.indexHeader.getIndexCount() < this.indexNum) {
+            // 获取key的hashCode
             int keyHash = indexKeyHashMethod(key);
+            // this.hashSlotNum为hash槽的个数，默认500W个，这里获取索引应该位于哪个hash槽
             int slotPos = keyHash % this.hashSlotNum;
+            // index文件有固定40字节的header，而每个hash槽4个字节，这里计算当前索引的hash槽在index文件中的绝对位置
             int absSlotPos = IndexHeader.INDEX_HEADER_SIZE + slotPos * hashSlotSize;
 
             FileLock fileLock = null;
@@ -101,13 +106,18 @@ public class IndexFile {
 
                 // fileLock = this.fileChannel.lock(absSlotPos, hashSlotSize,
                 // false);
+                // 获取当前槽上的int值，该值表示当前槽保存的索引的位置（数组位置）
                 int slotValue = this.mappedByteBuffer.getInt(absSlotPos);
+                // invalidIndex默认为0
                 if (slotValue <= invalidIndex || slotValue > this.indexHeader.getIndexCount()) {
                     slotValue = invalidIndex;
                 }
 
+                // this.indexHeader.getBeginTimestamp()为index文件保存的消息中创建时间的最小值，这里计算当前消息和当前index文件
+                // 保存的消息的最小时间戳之间的差
                 long timeDiff = storeTimestamp - this.indexHeader.getBeginTimestamp();
 
+                // 时间戳转换为秒
                 timeDiff = timeDiff / 1000;
 
                 if (this.indexHeader.getBeginTimestamp() <= 0) {
@@ -118,24 +128,36 @@ public class IndexFile {
                     timeDiff = 0;
                 }
 
+                // 计算索引的位置，结果为header(40B) + hashSlot * 4 + 当前索引数量 * 20
                 int absIndexPos =
                     IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize
                         + this.indexHeader.getIndexCount() * indexSize;
 
+                // 在索引位置放置hash值，4个字节
                 this.mappedByteBuffer.putInt(absIndexPos, keyHash);
+                // 继续放置消息的位移，8个字节
                 this.mappedByteBuffer.putLong(absIndexPos + 4, phyOffset);
+                // 继续放置时间戳的差值，4个字节
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8, (int) timeDiff);
+                // 继续放置hash槽的位置，4个字节
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8 + 4, slotValue);
 
+                // 更新当前hash槽的值为当前index文件索引的个数
                 this.mappedByteBuffer.putInt(absSlotPos, this.indexHeader.getIndexCount());
 
+                // indexCount的值从1开始的，这里判断如果当前消息是第一个保存到当前index文件的消息
                 if (this.indexHeader.getIndexCount() <= 1) {
+                    // 设置当前消息的信息为index文件的起始信息
                     this.indexHeader.setBeginPhyOffset(phyOffset);
                     this.indexHeader.setBeginTimestamp(storeTimestamp);
                 }
 
+                // 这里直接增加hashSlotCount不知道啥意思，这样indexCount的值和hashSlotCount的值不就总是差1了吗（indexCount从1
+                // 开始，hashSlotCount从0开始），这样hashSlotCount的值为啥还需要保存，没啥意义
                 this.indexHeader.incHashSlotCount();
+                // 增加索引的个数
                 this.indexHeader.incIndexCount();
+                // 更新当前消息的信息为当前index文件对应信息的最大值
                 this.indexHeader.setEndPhyOffset(phyOffset);
                 this.indexHeader.setEndTimestamp(storeTimestamp);
 

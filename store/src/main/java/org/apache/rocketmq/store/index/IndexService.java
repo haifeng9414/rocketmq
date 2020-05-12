@@ -203,12 +203,15 @@ public class IndexService {
     }
 
     public void buildIndex(DispatchRequest req) {
+        // 获取已存在的未写满的index文件，或者新建一个index文件
         IndexFile indexFile = retryGetAndCreateIndexFile();
         if (indexFile != null) {
+            // 获取已经构建过索引的消息的最大位移
             long endPhyOffset = indexFile.getEndPhyOffset();
             DispatchRequest msg = req;
             String topic = msg.getTopic();
             String keys = msg.getKeys();
+            // 如果当前消息的位移小于已经最大位移，则是重复构建，直接返回
             if (msg.getCommitLogOffset() < endPhyOffset) {
                 return;
             }
@@ -219,11 +222,13 @@ public class IndexService {
                 case MessageSysFlag.TRANSACTION_PREPARED_TYPE:
                 case MessageSysFlag.TRANSACTION_COMMIT_TYPE:
                     break;
-                case MessageSysFlag.TRANSACTION_ROLLBACK_TYPE:
+                case MessageSysFlag.TRANSACTION_ROLLBACK_TYPE: // 回滚事务的消息不构建索引
                     return;
             }
 
+            // 以uniqKey为key构建索引
             if (req.getUniqKey() != null) {
+                // buildKey方法返回topic + "#" + key
                 indexFile = putKey(indexFile, msg, buildKey(topic, req.getUniqKey()));
                 if (indexFile == null) {
                     log.error("putKey error commitlog {} uniqkey {}", req.getCommitLogOffset(), req.getUniqKey());
@@ -231,6 +236,7 @@ public class IndexService {
                 }
             }
 
+            // 以keys属性为key构建索引
             if (keys != null && keys.length() > 0) {
                 String[] keyset = keys.split(MessageConst.KEY_SEPARATOR);
                 for (int i = 0; i < keyset.length; i++) {
@@ -250,9 +256,11 @@ public class IndexService {
     }
 
     private IndexFile putKey(IndexFile indexFile, DispatchRequest msg, String idxKey) {
+        // 尝试构建索引，构建失败则重试
         for (boolean ok = indexFile.putKey(idxKey, msg.getCommitLogOffset(), msg.getStoreTimestamp()); !ok; ) {
             log.warn("Index file [" + indexFile.getFileName() + "] is full, trying to create another one");
 
+            // 构建失败认为是index文件写满了，这里重新创建一个
             indexFile = retryGetAndCreateIndexFile();
             if (null == indexFile) {
                 return null;
@@ -319,6 +327,7 @@ public class IndexService {
             this.readWriteLock.readLock().unlock();
         }
 
+        // indexFile为空可能是上一个index文件已经写满了，也可能是还没有index文件
         if (indexFile == null) {
             try {
                 // index文件保存的路径为user.home/index/当前时间，这里根据当前时间获取即将新建的index文件的文件名称

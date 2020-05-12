@@ -20,13 +20,16 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+// index文件的header内容
 public class IndexHeader {
     public static final int INDEX_HEADER_SIZE = 40;
     private static int beginTimestampIndex = 0;
     private static int endTimestampIndex = 8;
     private static int beginPhyoffsetIndex = 16;
     private static int endPhyoffsetIndex = 24;
+    // 表示index文件已经使用的hash槽的个数信息的位移
     private static int hashSlotcountIndex = 32;
+    // 表示index文件已经保存的索引个数的信息的位移
     private static int indexCountIndex = 36;
     private final ByteBuffer byteBuffer;
     private AtomicLong beginTimestamp = new AtomicLong(0);
