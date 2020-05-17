@@ -40,7 +40,9 @@ public class IndexService {
      */
     private static final int MAX_TRY_IDX_CREATE = 3;
     private final DefaultMessageStore defaultMessageStore;
+    // hash槽的数量，默认500W个
     private final int hashSlotNum;
+    // 用于保存索引的数组元素的数量，默认为500W * 4个
     private final int indexNum;
     private final String storePath;
     private final ArrayList<IndexFile> indexFileList = new ArrayList<IndexFile>();
@@ -228,7 +230,7 @@ public class IndexService {
 
             // 以uniqKey为key构建索引
             if (req.getUniqKey() != null) {
-                // buildKey方法返回topic + "#" + key
+                // buildKey方法返回topic + "#" + key, 这里以消息的uniqKey属性构建索引
                 indexFile = putKey(indexFile, msg, buildKey(topic, req.getUniqKey()));
                 if (indexFile == null) {
                     log.error("putKey error commitlog {} uniqkey {}", req.getCommitLogOffset(), req.getUniqKey());
