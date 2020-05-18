@@ -955,6 +955,7 @@ public class DefaultMessageStore implements MessageStore {
         long lastQueryMsgTime = end;
 
         for (int i = 0; i < 3; i++) {
+            // 从index文件根据消息索引查询消息
             QueryOffsetResult queryOffsetResult = this.indexService.queryOffset(topic, key, maxNum, begin, lastQueryMsgTime);
             if (queryOffsetResult.getPhyOffsets().isEmpty()) {
                 break;
@@ -962,9 +963,11 @@ public class DefaultMessageStore implements MessageStore {
 
             Collections.sort(queryOffsetResult.getPhyOffsets());
 
+            // 保存index文件的endTimestamp和endPhyOffset属性，这两个属性分别表示index文件保存的最新的索引对应的消息的创建时间和消息位移
             queryMessageResult.setIndexLastUpdatePhyoffset(queryOffsetResult.getIndexLastUpdatePhyoffset());
             queryMessageResult.setIndexLastUpdateTimestamp(queryOffsetResult.getIndexLastUpdateTimestamp());
 
+            // 遍历查询结果，根据结果的消息位移从commitlog文件获取消息
             for (int m = 0; m < queryOffsetResult.getPhyOffsets().size(); m++) {
                 long offset = queryOffsetResult.getPhyOffsets().get(m);
 

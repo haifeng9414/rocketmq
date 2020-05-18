@@ -301,6 +301,7 @@ public class MQAdminImpl {
     protected QueryResult queryMessage(String topic, String key, int maxNum, long begin, long end,
         boolean isUniqKey) throws MQClientException,
         InterruptedException {
+        // 获取topic的路由信息
         TopicRouteData topicRouteData = this.mQClientFactory.getAnExistTopicRouteData(topic);
         if (null == topicRouteData) {
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(topic);
@@ -322,6 +323,7 @@ public class MQAdminImpl {
                 final List<QueryResult> queryResultList = new LinkedList<QueryResult>();
                 final ReadWriteLock lock = new ReentrantReadWriteLock(false);
 
+                // 遍历topic所在的broker，查询消息
                 for (String addr : brokerAddrs) {
                     try {
                         QueryMessageRequestHeader requestHeader = new QueryMessageRequestHeader();
@@ -331,6 +333,7 @@ public class MQAdminImpl {
                         requestHeader.setBeginTimestamp(begin);
                         requestHeader.setEndTimestamp(end);
 
+                        // 发送查询请求
                         this.mQClientFactory.getMQClientAPIImpl().queryMessage(addr, requestHeader, timeoutMillis * 3,
                             new InvokeCallback() {
                                 @Override

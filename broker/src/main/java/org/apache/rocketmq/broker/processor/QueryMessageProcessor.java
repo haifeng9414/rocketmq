@@ -80,16 +80,20 @@ public class QueryMessageProcessor implements NettyRequestProcessor {
         response.setOpaque(request.getOpaque());
 
         String isUniqueKey = request.getExtFields().get(MixAll.UNIQUE_MSG_QUERY_FLAG);
+        // 如果是根据uniqKey查询消息，则设置最大查询的消息个数，默认32个
         if (isUniqueKey != null && isUniqueKey.equals("true")) {
             requestHeader.setMaxNum(this.brokerController.getMessageStoreConfig().getDefaultQueryMaxNum());
         }
 
+        // 从DefaultMessageStore中查询消息
         final QueryMessageResult queryMessageResult =
             this.brokerController.getMessageStore().queryMessage(requestHeader.getTopic(),
                 requestHeader.getKey(), requestHeader.getMaxNum(), requestHeader.getBeginTimestamp(),
                 requestHeader.getEndTimestamp());
         assert queryMessageResult != null;
 
+        // 将index文件的endTimestamp和endPhyOffset属性保存到响应的header，这两个属性分别表示index文件保存的最新的索引对应的消息
+        // 的创建时间和消息位移
         responseHeader.setIndexLastUpdatePhyoffset(queryMessageResult.getIndexLastUpdatePhyoffset());
         responseHeader.setIndexLastUpdateTimestamp(queryMessageResult.getIndexLastUpdateTimestamp());
 

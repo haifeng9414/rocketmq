@@ -46,7 +46,7 @@ public class MessageClientIDSetter {
         tempBuffer.position(ip.length);
         tempBuffer.putInt(UtilAll.getPid()); // 添加pid
         tempBuffer.position(ip.length + 2);
-        tempBuffer.putInt(MessageClientIDSetter.class.getClassLoader().hashCode()); // 添加classLoad而的hashCode
+        tempBuffer.putInt(MessageClientIDSetter.class.getClassLoader().hashCode()); // 添加classLoader的hashCode
         FIX_STRING = UtilAll.bytes2string(tempBuffer.array());
         setStartTime(System.currentTimeMillis());
         COUNTER = new AtomicInteger(0);

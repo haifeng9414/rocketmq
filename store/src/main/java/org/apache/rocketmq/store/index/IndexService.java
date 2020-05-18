@@ -169,23 +169,28 @@ public class IndexService {
         try {
             this.readWriteLock.readLock().lock();
             if (!this.indexFileList.isEmpty()) {
+                // 遍历所有的index文件，从最新的开始遍历
                 for (int i = this.indexFileList.size(); i > 0; i--) {
                     IndexFile f = this.indexFileList.get(i - 1);
                     boolean lastFile = i == this.indexFileList.size();
+                    // 保存最新的index文件的endTimestamp属性和endPhyOffset属性
                     if (lastFile) {
                         indexLastUpdateTimestamp = f.getEndTimestamp();
                         indexLastUpdatePhyoffset = f.getEndPhyOffset();
                     }
 
+                    // 如果index文件中的索引对应的消息的创建时间在指定的时间范围内，则执行查询
                     if (f.isTimeMatched(begin, end)) {
 
                         f.selectPhyOffset(phyOffsets, buildKey(topic, key), maxNum, begin, end, lastFile);
                     }
 
+                    // 之后的index文件的消息的最小创建时间肯定小于当前index文件的消息的最小创建时间，所以满足if条件时没必要再查了
                     if (f.getBeginTimestamp() < begin) {
                         break;
                     }
 
+                    // 满足查询的消息数量了也没必要再查了
                     if (phyOffsets.size() >= maxNum) {
                         break;
                     }
