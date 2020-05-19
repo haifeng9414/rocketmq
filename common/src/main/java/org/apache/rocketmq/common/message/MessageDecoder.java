@@ -66,7 +66,7 @@ public class MessageDecoder {
 
         // 放置ip地址和端口
         input.put(addr);
-        // offset为当前msgId对应的msg在commitlog文件的起始offset
+        // offset为当前msgId对应的msg在commitlog文件的offset，也就是消息的位移
         input.putLong(offset);
 
         return UtilAll.bytes2string(input.array());

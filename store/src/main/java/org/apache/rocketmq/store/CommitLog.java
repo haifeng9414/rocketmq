@@ -1315,7 +1315,7 @@ public class CommitLog {
             // STORETIMESTAMP + STOREHOSTADDRESS + OFFSET <br>
 
             // PHY OFFSET
-            // 获取当前开始写入数据的位置
+            // 获取当前开始写入数据的位置，这个位置就是消息的位移
             long wroteOffset = fileFromOffset + byteBuffer.position();
 
             int sysflag = msgInner.getSysFlag();

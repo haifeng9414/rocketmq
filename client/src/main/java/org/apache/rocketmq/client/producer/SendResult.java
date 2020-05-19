@@ -21,10 +21,14 @@ import org.apache.rocketmq.common.message.MessageQueue;
 
 public class SendResult {
     private SendStatus sendStatus;
+    // 实际上是消息的uniqKey
     private String msgId;
+    // 发送的队列
     private MessageQueue messageQueue;
+    // 发送的队列中保存了多少条消息
     private long queueOffset;
     private String transactionId;
+    // 实际上是消息的Message Id
     private String offsetMsgId;
     private String regionId;
     private boolean traceOn = true;
