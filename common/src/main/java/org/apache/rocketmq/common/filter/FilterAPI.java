@@ -45,7 +45,7 @@ public class FilterAPI {
         if (null == subString || subString.equals(SubscriptionData.SUB_ALL) || subString.length() == 0) {
             subscriptionData.setSubString(SubscriptionData.SUB_ALL);
         } else {
-            // 标签以|分割，这里将所有的标签保存到subscriptionData的tagsSet属性
+            // 标签以||分割，这里将所有的标签保存到subscriptionData的tagsSet属性
             String[] tags = subString.split("\\|\\|");
             if (tags.length > 0) {
                 for (String tag : tags) {

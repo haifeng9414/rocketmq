@@ -90,6 +90,7 @@ public class ConsumerFilterManager extends ConfigManager {
         consumerFilterData.setExpressionType(type);
         consumerFilterData.setClientVersion(clientVersion);
         try {
+            // 根据type获取FilterSpi对象，并且编译表达式获取Expression对象，目前只支持ExpressionType.SQL92类型
             consumerFilterData.setCompiledExpression(
                 FilterFactory.INSTANCE.get(type).compile(expression)
             );
@@ -105,7 +106,7 @@ public class ConsumerFilterManager extends ConfigManager {
         // 遍历消费者发送的心跳中带来的订阅配置
         for (SubscriptionData subscriptionData : subList) {
             // 如果当前订阅配置没有过滤配置，或者过滤的方式为TAG，则直接返回，否则说明过滤的方式为SQL92，此时会为过滤表达式创建布隆过滤器
-            // 并和过滤表达式一起保存到filterDataByTopic属性
+            // 并和过滤表达式一起保存到新建的ConsumerFilterData对象（如果没有的话），再将ConsumerFilterData对象保存到filterDataByTopic属性
             register(
                 subscriptionData.getTopic(),
                 consumerGroup,
@@ -116,11 +117,13 @@ public class ConsumerFilterManager extends ConfigManager {
         }
 
         // make illegal topic dead.
-        // ConsumerFilterData对象表示一个消费者组对一个topic的过滤配置
+        // ConsumerFilterData对象表示一个消费者组对一个topic的过滤配置，包含了布隆过滤器、过滤类型、过滤表达式等，目前只支持SQL92类型
         Collection<ConsumerFilterData> groupFilterData = getByGroup(consumerGroup);
 
+        // groupFilterData包含了当前消费者组的所有topic下的配置，一个topic对应一个ConsumerFilterData对象
         Iterator<ConsumerFilterData> iterator = groupFilterData.iterator();
         while (iterator.hasNext()) {
+            // 遍历ConsumerFilterData对象，判断ConsumerFilterData对象对应的topic是否包含在传入的subList中
             ConsumerFilterData filterData = iterator.next();
 
             boolean exist = false;
@@ -131,6 +134,7 @@ public class ConsumerFilterManager extends ConfigManager {
                 }
             }
 
+            // 设置不再被订阅的topic对应的ConsumerFilterData对象的deadTime属性为当前时间，即禁用该ConsumerFilterData对象
             // 设置当前消费者组不再订阅的topic的SubscriptionData对象的deadTime属性，这里不直接删除该配置是因为组内的其他的消费者
             // 成员可能还要用，清除操作会在当前ConsumerFilterManager对象被定时任务持久化时做
             if (!exist && !filterData.isDead()) {
@@ -150,6 +154,7 @@ public class ConsumerFilterManager extends ConfigManager {
             return false;
         }
 
+        // FilterDataMapByTopic对象包含了一个topic在所有消费者组中的订阅配置
         FilterDataMapByTopic filterDataMapByTopic = this.filterDataByTopic.get(topic);
 
         if (filterDataMapByTopic == null) {
@@ -158,6 +163,7 @@ public class ConsumerFilterManager extends ConfigManager {
             filterDataMapByTopic = prev != null ? prev : temp;
         }
 
+        // 为当前消费者组创建布隆过滤器
         BloomFilterData bloomFilterData = bloomFilter.generate(consumerGroup + "#" + topic);
 
         return filterDataMapByTopic.register(consumerGroup, expression, type, bloomFilterData, clientVersion);
@@ -360,21 +366,29 @@ public class ConsumerFilterManager extends ConfigManager {
 
         public boolean register(String consumerGroup, String expression, String type, BloomFilterData bloomFilterData,
             long clientVersion) {
+            // 获取当前消费者组在当前FilterDataMapByTopic对象表示的topic的订阅配置
             ConsumerFilterData old = this.groupFilterData.get(consumerGroup);
 
             if (old == null) {
+                // 创建ConsumerFilterData对象，该对象保存了当前topic在当前消费者组内的指定type的过滤配置，创建ConsumerFilterData对
+                // 象时还会编译传入的表达式，获取Expression对象，目前只支持SQL92类型
                 ConsumerFilterData consumerFilterData = build(topic, consumerGroup, expression, type, clientVersion);
-                if (consumerFilterData == null) {
+                if (consumerFilterData == null) { // 构建ConsumerFilterData对象失败（如表达式编译失败），直接返回
                     return false;
                 }
+                // 保存布隆过滤器
                 consumerFilterData.setBloomFilterData(bloomFilterData);
 
+                // 保存配置，注意使用的是putIfAbsent方法
                 old = this.groupFilterData.putIfAbsent(consumerGroup, consumerFilterData);
-                if (old == null) {
+                if (old == null) { // 保存成功
                     log.info("New consumer filter registered: {}", consumerFilterData);
                     return true;
                 } else {
+                    // 保存时如果已经存在一个ConsumerFilterData对象，并且比当前创建的版本更新
                     if (clientVersion <= old.getClientVersion()) {
+                        // 如果更新的ConsumerFilterData对象的过滤类型变了，或者表达式变了，记录当前ConsumerFilterData对象被忽略的日志
+                        // 如果过滤类型和表达式都没变，则当前ConsumerFilterData对象被忽略也没关系
                         if (!type.equals(old.getExpressionType()) || !expression.equals(old.getExpression())) {
                             log.warn("Ignore consumer({} : {}) filter(concurrent), because of version {} <= {}, but maybe info changed!old={}:{}, ignored={}:{}",
                                 consumerGroup, topic,
@@ -382,20 +396,22 @@ public class ConsumerFilterManager extends ConfigManager {
                                 old.getExpressionType(), old.getExpression(),
                                 type, expression);
                         }
+                        // 如果已存在的ConsumerFilterData对象被设置为失效的，则重新激活配置
                         if (clientVersion == old.getClientVersion() && old.isDead()) {
                             reAlive(old);
                             return true;
                         }
 
                         return false;
-                    } else {
+                    } else { // 否则当前ConsumerFilterData对象更新，这里再次保存
                         this.groupFilterData.put(consumerGroup, consumerFilterData);
                         log.info("New consumer filter registered(concurrent): {}, old: {}", consumerFilterData, old);
                         return true;
                     }
                 }
-            } else {
+            } else { // 如果已经存在一个ConsumerFilterData对象
                 if (clientVersion <= old.getClientVersion()) {
+                    // 这里的处理和上面的处理是一样的
                     if (!type.equals(old.getExpressionType()) || !expression.equals(old.getExpression())) {
                         log.info("Ignore consumer({}:{}) filter, because of version {} <= {}, but maybe info changed!old={}:{}, ignored={}:{}",
                             consumerGroup, topic,
@@ -411,7 +427,11 @@ public class ConsumerFilterManager extends ConfigManager {
                     return false;
                 }
 
+                // 运行到这说明当前ConsumerFilterData对象比原来的ConsumerFilterData对象版本新
+
+                // 如果当前ConsumerFilterData对象的过滤类型或者表达式和已存在的不一样
                 boolean change = !old.getExpression().equals(expression) || !old.getExpressionType().equals(type);
+                // 或者布隆过滤器有发生变化
                 if (old.getBloomFilterData() == null && bloomFilterData != null) {
                     change = true;
                 }
@@ -421,6 +441,7 @@ public class ConsumerFilterManager extends ConfigManager {
 
                 // if subscribe data is changed, or consumer is died too long.
                 if (change) {
+                    // 创建ConsumerFilterData对象并保存
                     ConsumerFilterData consumerFilterData = build(topic, consumerGroup, expression, type, clientVersion);
                     if (consumerFilterData == null) {
                         // new expression compile error, remove old, let client report error.
@@ -436,6 +457,7 @@ public class ConsumerFilterManager extends ConfigManager {
 
                     return true;
                 } else {
+                    // 如果新旧ConsumerFilterData对象的过滤配置一样，则更新版本即可
                     old.setClientVersion(clientVersion);
                     if (old.isDead()) {
                         reAlive(old);
