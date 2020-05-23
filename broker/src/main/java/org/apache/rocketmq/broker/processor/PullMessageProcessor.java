@@ -125,7 +125,8 @@ public class PullMessageProcessor implements NettyRequestProcessor {
         // 对于push模式的消费者，hasSuspendFlag为true
         final boolean hasSuspendFlag = PullSysFlag.hasSuspendFlag(requestHeader.getSysFlag());
         final boolean hasCommitOffsetFlag = PullSysFlag.hasCommitOffsetFlag(requestHeader.getSysFlag());
-        // 这次发送拉取消息请求的消费者是否设置了消息标签，即是否需要根据标签进行过滤
+        // 这次发送拉取消息请求的消费者是否设置了消息标签，即是否需要根据标签进行过滤（消费者的订阅配置的subscription属性不为空时，
+        // hasSubscriptionFlag为true）
         final boolean hasSubscriptionFlag = PullSysFlag.hasSubscriptionFlag(requestHeader.getSysFlag());
 
         // 请求挂起等待的时间
@@ -157,13 +158,18 @@ public class PullMessageProcessor implements NettyRequestProcessor {
         }
 
         SubscriptionData subscriptionData = null;
+        // consumerFilterData对象保存了当前消费者组对于当前topic的订阅配置（保存的是SQL92过滤方式的过滤配置）
         ConsumerFilterData consumerFilterData = null;
+        // 如果需要根据消息标签进行过滤
         if (hasSubscriptionFlag) {
             try {
+                // SubscriptionData对象保存的数据就是传入build方法的参数
                 subscriptionData = FilterAPI.build(
                     requestHeader.getTopic(), requestHeader.getSubscription(), requestHeader.getExpressionType()
                 );
+                // 如果不是根据消息标签的hash进行过滤
                 if (!ExpressionType.isTagType(subscriptionData.getExpressionType())) {
+                    // 创建consumerFilterData对象
                     consumerFilterData = ConsumerFilterManager.build(
                         requestHeader.getTopic(), requestHeader.getConsumerGroup(), requestHeader.getSubscription(),
                         requestHeader.getExpressionType(), requestHeader.getSubVersion()
@@ -239,7 +245,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
-        // MessageFilter对象能够实现按照标签过滤或按照commitLog文件的内容过滤
+        // MessageFilter对象负责实现消息过滤
         MessageFilter messageFilter;
         if (this.brokerController.getBrokerConfig().isFilterSupportRetry()) {
             messageFilter = new ExpressionForRetryMessageFilter(subscriptionData, consumerFilterData,

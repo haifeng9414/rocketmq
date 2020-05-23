@@ -399,10 +399,17 @@ public class ConsumeQueue {
                 cqExtUnit.setMsgStoreTime(request.getStoreTimestamp()); // 消息被保存到broker的时间（CommitLog对象的putMessage方法设置的）
                 cqExtUnit.setTagsCode(request.getTagsCode()); // 消息标签的hash值，如果消息被保存在定时消息的topic，则tagsCode属性为消息应该被消费的时间戳
 
+                // 将cqExtUnit对象保存到consumequeue_ext文件，put方法如果保存成功，则返回值是cqExtUnit对象在consumequeue_ext文件中的位
+                // 移加上Long.MIN_VALUE的值，如果保存失败，则返回值为1。通过这种方式，就能够判断出cqExtUnit对象是否保存成功了，通过根据
+                // extAddr的值也能在consumequeue_ext文件中找到cqExtUnit对象
                 long extAddr = this.consumeQueueExt.put(cqExtUnit);
+                // 根据extAddr的值判断cqExtUnit对象是否保存成功，如果保存成功，则将tagsCode设置为extAddr，在之后extAddr会代替tag hash
+                // 被保存到consumequeue文件，isExtAddr方法的判断很简单，extAddr的值是否小于Integer.MIN_VALUE，因为extAddr是通过
+                // cqExtUnit对象在consumequeue_ext文件中的位移加上Long.MIN_VALUE的值得到的，所以可以通过这种方式判断
                 if (isExtAddr(extAddr)) {
                     tagsCode = extAddr;
                 } else {
+                    // 保存cqExtUnit对象失败记录日志，此时consumequeue对象保存的就是正常的tag hash
                     log.warn("Save consume queue extend fail, So just save tagsCode! {}, topic:{}, queueId:{}, offset:{}", cqExtUnit,
                         topic, queueId, request.getCommitLogOffset());
                 }

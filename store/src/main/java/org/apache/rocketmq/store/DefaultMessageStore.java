@@ -624,20 +624,31 @@ public class DefaultMessageStore implements MessageStore {
                                 break;
                             }
 
+                            // extRet表示是否存在ConsumeQueueExt.CqExtUnit对象，isTagsCodeLegal表示tagsCode的值是否合法
                             boolean extRet = false, isTagsCodeLegal = true;
+                            // 这里的判断在理解ConsumeQueue类的putMessagePositionInfoWrapper方法的实现之后就能理解，如果isExtAddr
+                            // 方法返回true，说明consumequeue文件中保存的tagsCode值不是消息的tag的hash，而是消息的ConsumeQueueExt.CqExtUnit
+                            // 对象在consumequeue_ext文件中的位移加上Long.MIN_VALUE的值
                             if (consumeQueue.isExtAddr(tagsCode)) {
+                                // 此时根据tagsCode的值从consumequeue_ext文件读取消息的ConsumeQueueExt.CqExtUnit对象的值，并将
+                                // 值保存到传入的cqExtUnit对象，ConsumeQueueExt.CqExtUnit对象保存了消息的bitmap数据、消息的保存时间
+                                // 和消息标签的hash值（如果消息被保存在定时消息的topic，则tagsCode属性为消息应该被消费的时间戳）
+                                // 如果没有ConsumeQueueExt.CqExtUnit对象，则一条消息在consumequeue中正常只有消息的位移、大小和消
+                                // 息标签的hash
                                 extRet = consumeQueue.getExt(tagsCode, cqExtUnit);
-                                if (extRet) {
+                                if (extRet) { // 读取成功
                                     tagsCode = cqExtUnit.getTagsCode();
                                 } else {
                                     // can't find ext content.Client will filter messages by tag also.
                                     log.error("[BUG] can't find consume queue extend file content!addr={}, offsetPy={}, sizePy={}, topic={}, group={}",
                                         tagsCode, offsetPy, sizePy, topic, group);
+                                    // 获取ConsumeQueueExt.CqExtUnit对象失败则设置isTagsCodeLegal为false
                                     isTagsCodeLegal = false;
                                 }
                             }
 
-                            // 根据tagHashCode执行消息过滤
+                            // 根据tagHashCode执行消息过滤（或者ConsumeQueueExt.CqExtUnit对象，如果存在的话）
+                            // messageFilter默认实现为ExpressionMessageFilter
                             if (messageFilter != null
                                 && !messageFilter.isMatchedByConsumeQueue(isTagsCodeLegal ? tagsCode : null, extRet ? cqExtUnit : null)) {
                                 if (getResult.getBufferTotalSize() == 0) {

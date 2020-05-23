@@ -123,6 +123,7 @@ public class ConsumeQueueExt {
      * @return ext address(value is less than 0)
      */
     public long decorate(final long offset) {
+        // 如果当前地址是正常的位移值，则加上Long.MIN_VALUE，目的如方法注释所说，用于区分cqExtUnit对象的位移和tagHash的值
         if (!isExtAddr(offset)) {
             return offset + Long.MIN_VALUE;
         }
@@ -189,11 +190,13 @@ public class ConsumeQueueExt {
     public long put(final CqExtUnit cqExtUnit) {
         final int retryTimes = 3;
         try {
+            // 计算cqExtUnit对象中属性的大小
             int size = cqExtUnit.calcUnitSize();
             if (size > CqExtUnit.MAX_EXT_UNIT_SIZE) {
                 log.error("Size of cq ext unit is greater than {}, {}", CqExtUnit.MAX_EXT_UNIT_SIZE, cqExtUnit);
                 return 1;
             }
+            // 判断consumequeue_ext文件是否写满了
             if (this.mappedFileQueue.getMaxOffset() + size > MAX_REAL_OFFSET) {
                 log.warn("Capacity of ext is maximum!{}, {}", this.mappedFileQueue.getMaxOffset(), size);
                 return 1;
@@ -203,9 +206,11 @@ public class ConsumeQueueExt {
                 this.tempContainer = ByteBuffer.allocate(size);
             }
 
+            // 将cqExtUnit对象的属性写入consumequeue_ext文件
             for (int i = 0; i < retryTimes; i++) {
                 MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
 
+                // 如果consumequeue_ext文件未创建，或者当前consumequeue_ext文件写满了，新建一个
                 if (mappedFile == null || mappedFile.isFull()) {
                     mappedFile = this.mappedFileQueue.getLastMappedFile(0);
                 }
@@ -215,17 +220,24 @@ public class ConsumeQueueExt {
                     continue;
                 }
                 final int wrotePosition = mappedFile.getWrotePosition();
+                // 计算consumequeue_ext文件可以写入的字节数
                 final int blankSize = this.mappedFileSize - wrotePosition - END_BLANK_DATA_LENGTH;
 
                 // check whether has enough space.
+                // 如果当前consumequeue_ext文件不足以写入当前cqExtUnit对象
                 if (size > blankSize) {
+                    // 填充consumequeue_ext文件并重试
                     fullFillToEnd(mappedFile, wrotePosition);
                     log.info("No enough space(need:{}, has:{}) of file {}, so fill to end",
                         size, blankSize, mappedFile.getFileName());
                     continue;
                 }
 
+                // 保存cqExtUnit对象到consumequeue_ext文件
                 if (mappedFile.appendMessage(cqExtUnit.write(this.tempContainer), 0, size)) {
+                    // wrotePosition + mappedFile.getFileFromOffset()的值就是cqExtUnit对象被保存到consumequeue_ext文件的位移，
+                    // 这里通过decorate方法将正常的位移加上Long.MIN_VALUE的值，使得最终返回的值既能够表示cqExtUnit对象在
+                    // consumequeue_ext文件的位移，也能过表示cqExtUnit对象被保存到了consumequeue_ext文件
                     return decorate(wrotePosition + mappedFile.getFileFromOffset());
                 }
             }

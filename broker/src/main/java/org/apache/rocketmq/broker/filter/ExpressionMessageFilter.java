@@ -68,19 +68,24 @@ public class ExpressionMessageFilter implements MessageFilter {
         }
 
         // by tags code.
+        // 如果是根据消息标签的hashCode进行过滤
         if (ExpressionType.isTagType(subscriptionData.getExpressionType())) {
 
             if (tagsCode == null) {
                 return true;
             }
 
+            // 如果过滤表达式是*，则直接返回true
             if (subscriptionData.getSubString().equals(SubscriptionData.SUB_ALL)) {
                 return true;
             }
 
+            // 否则返回消费者订阅的tag的hash中是否包含当前tagsCode值
             return subscriptionData.getCodeSet().contains(tagsCode.intValue());
         } else {
             // no expression or no bloom
+            // 非标签过滤，则为SQL92过滤方式
+            // 如果SQL92的配置为空，则直接返回
             if (consumerFilterData == null || consumerFilterData.getExpression() == null
                 || consumerFilterData.getCompiledExpression() == null || consumerFilterData.getBloomFilterData() == null) {
                 return true;
