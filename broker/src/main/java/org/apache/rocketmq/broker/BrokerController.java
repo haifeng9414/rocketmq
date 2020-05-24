@@ -259,6 +259,7 @@ public class BrokerController {
                 MessageStorePluginContext context = new MessageStorePluginContext(messageStoreConfig, brokerStatsManager, messageArrivingListener, brokerConfig);
                 // 以context和messageStore为构造函数参数反射创建配置在BrokerConfig的messageStorePlugIn属性的AbstractPluginMessageStore类实例
                 this.messageStore = MessageStoreFactory.build(context, this.messageStore);
+                // CommitLogDispatcherCalcBitMap用于产生布隆过滤器中的数据
                 this.messageStore.getDispatcherList().addFirst(new CommitLogDispatcherCalcBitMap(this.brokerConfig, this.consumerFilterManager));
             } catch (IOException e) {
                 result = false;

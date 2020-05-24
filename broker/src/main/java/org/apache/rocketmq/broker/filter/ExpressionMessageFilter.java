@@ -92,13 +92,17 @@ public class ExpressionMessageFilter implements MessageFilter {
             }
 
             // message is before consumer
+            // 如果consumerFilterData的创建时间小于消息的存储时间，则直接返回true
             if (cqExtUnit == null || !consumerFilterData.isMsgInLive(cqExtUnit.getMsgStoreTime())) {
                 log.debug("Pull matched because not in live: {}, {}", consumerFilterData, cqExtUnit);
                 return true;
             }
 
+            // 获取bitmap，也就是CommitLogDispatcherCalcBitMap类中根据consumerGroup + "#" + topic字符串经过布隆过滤器得到的结果
             byte[] filterBitMap = cqExtUnit.getFilterBitMap();
+            // 获取布隆过滤器
             BloomFilter bloomFilter = this.consumerFilterManager.getBloomFilter();
+
             if (filterBitMap == null || !this.bloomDataValid
                 || filterBitMap.length * Byte.SIZE != consumerFilterData.getBloomFilterData().getBitNum()) {
                 return true;
@@ -106,7 +110,12 @@ public class ExpressionMessageFilter implements MessageFilter {
 
             BitsArray bitsArray = null;
             try {
+                // BitsArray对象表示一个字节数组，能够方便的执行or、and、xor、not等操作
                 bitsArray = BitsArray.create(filterBitMap);
+                // consumerFilterData.getBloomFilterData()是使用布隆过滤器计算consumerGroup + "#" + topic字符串的计算结果
+                // 这里判断consumerFilterData.getBloomFilterData()中保存的所有位置在bitsArray中是否都是1，注意根据CommitLogDispatcherCalcBitMap
+                // 的实现，bitsArray只是保存了表达式结果为true的consumerFilterData的结果，所以当这里的isHit方法返回false，即consumerFilterData.getBloomFilterData()
+                // 不在bitsArray这个布隆过滤器的结果之内，此时消息应该被过滤
                 boolean ret = bloomFilter.isHit(consumerFilterData.getBloomFilterData(), bitsArray);
                 log.debug("Pull {} by bit map:{}, {}, {}", ret, consumerFilterData, bitsArray, cqExtUnit);
                 return ret;
@@ -142,12 +151,14 @@ public class ExpressionMessageFilter implements MessageFilter {
             return true;
         }
 
+        // 获取消息的属性
         if (tempProperties == null && msgBuffer != null) {
             tempProperties = MessageDecoder.decodeProperties(msgBuffer);
         }
 
         Object ret = null;
         try {
+            // 计算表达式
             MessageEvaluationContext context = new MessageEvaluationContext(tempProperties);
 
             ret = realFilterData.getCompiledExpression().evaluate(context);

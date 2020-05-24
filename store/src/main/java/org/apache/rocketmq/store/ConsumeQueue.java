@@ -392,10 +392,10 @@ public class ConsumeQueue {
         boolean canWrite = this.defaultMessageStore.getRunningFlags().isCQWriteable();
         for (int i = 0; i < maxRetries && canWrite; i++) {
             long tagsCode = request.getTagsCode();
-            // 如果开启的ConsumeQueueExt，则会额外写一些信息到consumequeue_ext文件
+            // 如果开启的ConsumeQueueExt，则会额外写一些信息到consumequeue_ext文件，开启后能提高SQL92消息过滤的效率，默认是不开启的
             if (isExtWriteEnable()) {
                 ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
-                cqExtUnit.setFilterBitMap(request.getBitMap()); // 当前消息的topic对应的bitmap数据
+                cqExtUnit.setFilterBitMap(request.getBitMap()); // 当前消息的topic对应的bitmap数据（即布隆过滤器的计算结果，从CommitLogDispatcherCalcBitMap类计算得到的）
                 cqExtUnit.setMsgStoreTime(request.getStoreTimestamp()); // 消息被保存到broker的时间（CommitLog对象的putMessage方法设置的）
                 cqExtUnit.setTagsCode(request.getTagsCode()); // 消息标签的hash值，如果消息被保存在定时消息的topic，则tagsCode属性为消息应该被消费的时间戳
 

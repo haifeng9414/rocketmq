@@ -648,7 +648,7 @@ public class DefaultMessageStore implements MessageStore {
                             }
 
                             // 根据tagHashCode执行消息过滤（或者ConsumeQueueExt.CqExtUnit对象，如果存在的话）
-                            // messageFilter默认实现为ExpressionMessageFilter
+                            // messageFilter默认实现为ExpressionMessageFilter，这里判断消息是否应该被过滤掉
                             if (messageFilter != null
                                 && !messageFilter.isMatchedByConsumeQueue(isTagsCodeLegal ? tagsCode : null, extRet ? cqExtUnit : null)) {
                                 if (getResult.getBufferTotalSize() == 0) {
@@ -1998,8 +1998,9 @@ public class DefaultMessageStore implements MessageStore {
 
                             if (dispatchRequest.isSuccess()) {
                                 if (size > 0) {
-                                    // 遍历CommitLogDispatcher对象处理当前的消息，CommitLogDispatcher默认有两个，CommitLogDispatcherBuildConsumeQueue
-                                    // 和CommitLogDispatcherBuildIndex
+                                    // 遍历CommitLogDispatcher对象处理当前的消息，CommitLogDispatcher默认有三个
+                                    // CommitLogDispatcherBuildConsumeQueue和CommitLogDispatcherBuildIndex是在DefaultMessageStore的构造函数设置的
+                                    // CommitLogDispatcherCalcBitMap是在BrokerController的initialize方法中设置的，用于产生布隆过滤器中的数据
                                     DefaultMessageStore.this.doDispatch(dispatchRequest);
 
                                     // 如果是master broker并且开启了长轮询

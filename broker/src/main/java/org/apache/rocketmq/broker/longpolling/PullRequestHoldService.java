@@ -138,7 +138,7 @@ public class PullRequestHoldService extends ServiceThread {
                     }
 
                     if (newestOffset > request.getPullFromThisOffset()) {
-                        // 判断消息是否匹配
+                        // 判断消息是否匹配，filterBitMap是CommitLogDispatcherCalcBitMap类根据消息计算的布隆过滤器的值
                         boolean match = request.getMessageFilter().isMatchedByConsumeQueue(tagsCode,
                             new ConsumeQueueExt.CqExtUnit(tagsCode, msgStoreTime, filterBitMap));
                         // match by bit map, need eval again when properties is not null.

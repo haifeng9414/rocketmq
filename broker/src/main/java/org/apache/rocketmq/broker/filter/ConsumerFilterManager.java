@@ -105,8 +105,8 @@ public class ConsumerFilterManager extends ConfigManager {
     public void register(final String consumerGroup, final Collection<SubscriptionData> subList) {
         // 遍历消费者发送的心跳中带来的订阅配置
         for (SubscriptionData subscriptionData : subList) {
-            // 如果当前订阅配置没有过滤配置，或者过滤的方式为TAG，则直接返回，否则说明过滤的方式为SQL92，此时会为过滤表达式创建布隆过滤器
-            // 并和过滤表达式一起保存到新建的ConsumerFilterData对象（如果没有的话），再将ConsumerFilterData对象保存到filterDataByTopic属性
+            // 如果当前订阅配置没有过滤配置，或者过滤的方式为TAG，则直接返回，否则说明过滤的方式为SQL92，此时会使用布隆过滤器为consumerGroup + "#" + topic
+            // 字符串创建字节数组，并和过滤表达式一起保存到新建的ConsumerFilterData对象（如果没有的话），再将ConsumerFilterData对象保存到filterDataByTopic属性
             register(
                 subscriptionData.getTopic(),
                 consumerGroup,
@@ -117,7 +117,7 @@ public class ConsumerFilterManager extends ConfigManager {
         }
 
         // make illegal topic dead.
-        // ConsumerFilterData对象表示一个消费者组对一个topic的过滤配置，包含了布隆过滤器、过滤类型、过滤表达式等，目前只支持SQL92类型
+        // ConsumerFilterData对象表示一个消费者组对一个topic的过滤配置，包含了布隆过滤器计算结果、过滤类型、过滤表达式等，目前只支持SQL92类型
         Collection<ConsumerFilterData> groupFilterData = getByGroup(consumerGroup);
 
         // groupFilterData包含了当前消费者组的所有topic下的配置，一个topic对应一个ConsumerFilterData对象
@@ -163,7 +163,7 @@ public class ConsumerFilterManager extends ConfigManager {
             filterDataMapByTopic = prev != null ? prev : temp;
         }
 
-        // 为当前消费者组创建布隆过滤器
+        // 使用布隆过滤器创建BloomFilterData对象，该对象包含了根据consumerGroup + "#" + topic计算得到的字节位置
         BloomFilterData bloomFilterData = bloomFilter.generate(consumerGroup + "#" + topic);
 
         return filterDataMapByTopic.register(consumerGroup, expression, type, bloomFilterData, clientVersion);
@@ -376,7 +376,7 @@ public class ConsumerFilterManager extends ConfigManager {
                 if (consumerFilterData == null) { // 构建ConsumerFilterData对象失败（如表达式编译失败），直接返回
                     return false;
                 }
-                // 保存布隆过滤器
+                // 保存布隆过滤器计算得到的字节数组，该结果是根据consumerGroup + "#" + topic字符串计算得到的
                 consumerFilterData.setBloomFilterData(bloomFilterData);
 
                 // 保存配置，注意使用的是putIfAbsent方法
@@ -431,7 +431,7 @@ public class ConsumerFilterManager extends ConfigManager {
 
                 // 如果当前ConsumerFilterData对象的过滤类型或者表达式和已存在的不一样
                 boolean change = !old.getExpression().equals(expression) || !old.getExpressionType().equals(type);
-                // 或者布隆过滤器有发生变化
+                // 或者布隆过滤器的计算结果有发生变化
                 if (old.getBloomFilterData() == null && bloomFilterData != null) {
                     change = true;
                 }
