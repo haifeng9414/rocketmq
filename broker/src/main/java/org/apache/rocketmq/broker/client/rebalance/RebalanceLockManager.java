@@ -119,18 +119,23 @@ public class RebalanceLockManager {
         Set<MessageQueue> lockedMqs = new HashSet<MessageQueue>(mqs.size());
         Set<MessageQueue> notLockedMqs = new HashSet<MessageQueue>(mqs.size());
 
+        // 遍历消费者请求需要锁住的队列
         for (MessageQueue mq : mqs) {
+            // 判断当前消费者是否已经持有了队列的锁
             if (this.isLocked(group, mq, clientId)) {
                 lockedMqs.add(mq);
             } else {
+                // 没有则添加到notLockedMqs等待后续处理
                 notLockedMqs.add(mq);
             }
         }
 
+        // notLockedMqs为没有被当前消费者锁的队列
         if (!notLockedMqs.isEmpty()) {
             try {
                 this.lock.lockInterruptibly();
                 try {
+                    // mqLockTable保存了所有消费者组的队列锁状态，key为队列，value的LockEntry对象保存了持有队列锁的消费者id
                     ConcurrentHashMap<MessageQueue, LockEntry> groupValue = this.mqLockTable.get(group);
                     if (null == groupValue) {
                         groupValue = new ConcurrentHashMap<>(32);
@@ -139,8 +144,10 @@ public class RebalanceLockManager {
 
                     for (MessageQueue mq : notLockedMqs) {
                         LockEntry lockEntry = groupValue.get(mq);
+                        // 如果lockEntry为null说明该队列还没有被锁
                         if (null == lockEntry) {
                             lockEntry = new LockEntry();
+                            // 设置当前队列被当前消费者持有锁
                             lockEntry.setClientId(clientId);
                             groupValue.put(mq, lockEntry);
                             log.info(
@@ -150,14 +157,20 @@ public class RebalanceLockManager {
                                 mq);
                         }
 
+                        // 如果该队列已经被当前消费者锁住了，更新锁的时间，通过LockEntry类的isLocked方法可以发现，队列的锁是有有
+                        // 效期的，默认60s，而消费者端的ConsumeMessageOrderlyService类每隔20s也会申请锁住所有其所在消费者分配到的
+                        // 队列，以此更新broker中锁的有效期（消费者负载均衡是，新分配到的队列也会发起锁队列请求）
                         if (lockEntry.isLocked(clientId)) {
                             lockEntry.setLastUpdateTimestamp(System.currentTimeMillis());
+                            // 保存成功锁住的队列
                             lockedMqs.add(mq);
                             continue;
                         }
 
+                        // 获取原来持有当前队列的锁的消费者id
                         String oldClientId = lockEntry.getClientId();
 
+                        // 如果原来的消费者持有的锁过期了，更新锁为当前消费者持有
                         if (lockEntry.isExpired()) {
                             lockEntry.setClientId(clientId);
                             lockEntry.setLastUpdateTimestamp(System.currentTimeMillis());
@@ -167,6 +180,7 @@ public class RebalanceLockManager {
                                 oldClientId,
                                 clientId,
                                 mq);
+                            // 保存成功锁住的队列
                             lockedMqs.add(mq);
                             continue;
                         }
@@ -186,6 +200,7 @@ public class RebalanceLockManager {
             }
         }
 
+        // 返回成功锁住的队列
         return lockedMqs;
     }
 
