@@ -131,8 +131,16 @@ public class RebalancePushImpl extends RebalanceImpl {
 
     private boolean unlockDelay(final MessageQueue mq, final ProcessQueue pq) {
 
+        // 判断当前ProcessQueue对象中是否还有从broker拉取下来后还没有消费完的消息
         if (pq.hasTempMessage()) {
             log.info("[{}]unlockDelay, begin {} ", mq.hashCode(), mq);
+            // 如果有还没消费完的消息就20秒后执行unlock，在执行unlockDelay方法之前ProcessQueue对象的dropped属性已经被设置为true了，
+            // 所以正在被ConsumeMessageOrderlyService消费的消息没法取消（正在被用户编写的consumeMessage方法消费），但是剩余的在
+            // ProcessQueue中的消息不会再被消费了，此时只需要隔一段时间重新解锁即可，没必要重试。当然当前正在被消费的消息可能消费成功
+            // 也可能消费失败，如果消费成功的话需要提交消费位移，否则消息顺序还是没法保证。所以ConsumeMessageOrderlyService必须要
+            // 在dropped属性是否为true的情况下也要提交位移，而ConsumeMessageOrderlyService类的实现也确实这么做了（这点不同于
+            // ConsumeMessageConcurrentlyService的实现，ConsumeMessageConcurrentlyService类在提交位移之前会判断dropped属性是否
+            // 为false），同时在ConsumeMessageOrderlyService提交消费位移之前不会释放队列锁（20秒内不会），这就保证了消息的顺序
             this.defaultMQPushConsumerImpl.getmQClientFactory().getScheduledExecutorService().schedule(new Runnable() {
                 @Override
                 public void run() {
@@ -141,6 +149,7 @@ public class RebalancePushImpl extends RebalanceImpl {
                 }
             }, UNLOCK_DELAY_TIME_MILLS, TimeUnit.MILLISECONDS);
         } else {
+            // 否则直接执行unlock
             this.unlock(mq, true);
         }
         return true;
