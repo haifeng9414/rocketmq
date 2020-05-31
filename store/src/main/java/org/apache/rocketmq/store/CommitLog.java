@@ -584,14 +584,19 @@ public class CommitLog {
                     msg.setDelayTimeLevel(this.defaultMessageStore.getScheduleMessageService().getMaxDelayLevel());
                 }
 
+                // 替换消息的topic为延时消息的topic
                 topic = ScheduleMessageService.SCHEDULE_TOPIC;
+                // 根据延时级别获取队列id，默认为delayLevel - 1
                 queueId = ScheduleMessageService.delayLevel2QueueId(msg.getDelayTimeLevel());
 
                 // Backup real topic, queueId
+                // 保存消息本来的topic和队列id到消息的属性中
                 MessageAccessor.putProperty(msg, MessageConst.PROPERTY_REAL_TOPIC, msg.getTopic());
                 MessageAccessor.putProperty(msg, MessageConst.PROPERTY_REAL_QUEUE_ID, String.valueOf(msg.getQueueId()));
+                // 消息本来的属性保存到propertiesString中
                 msg.setPropertiesString(MessageDecoder.messageProperties2String(msg.getProperties()));
 
+                // 替换topic和队列id
                 msg.setTopic(topic);
                 msg.setQueueId(queueId);
             }
