@@ -353,6 +353,7 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
     }
 
     public boolean sendMessageBack(final MessageExt msg, final ConsumeConcurrentlyContext context) {
+        // 默认为0，即让broker根据重试次数绝对消息再次被消费的时间
         int delayLevel = context.getDelayLevelWhenNextConsume();
 
         // Wrap topic with namespace before sending back message.
