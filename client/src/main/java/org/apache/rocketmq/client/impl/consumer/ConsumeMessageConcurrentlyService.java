@@ -337,7 +337,7 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
 
         // 从ProcessQueue中移除消费成功和消费失败后发送回broker成功的消息，如果移除消息完成后，ProcessQueue中还保留着消息，则
         // removeMessage方法的返回值为移除之后ProcessQueue保存的消息中位移的最小值，如果移除之前ProcessQueue保存的消息为空，则返回
-        // 值为-1（通常不会出现这种情况，因为ProcessQueue中只是会包含下面传入的这些消息），如果移除之后ProcessQueue保存的消息为空，
+        // 值为-1（通常不会出现这种情况，因为ProcessQueue中至少会包含下面传入的这些消息），如果移除之后ProcessQueue保存的消息为空，
         // 则返回ProcessQueue保存过的消息中位移的最大值，通过removeMessage的这种实现机制，再加上下面的updateOffset方法，就实现了消息
         // 消费后的自动提交
         long offset = consumeRequest.getProcessQueue().removeMessage(consumeRequest.getMsgs());

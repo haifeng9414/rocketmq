@@ -45,7 +45,9 @@ public class ProcessQueue {
     private final static long PULL_MAX_IDLE_TIME = Long.parseLong(System.getProperty("rocketmq.client.pull.pullMaxIdleTime", "120000"));
     private final InternalLogger log = ClientLogger.getLog();
     private final ReadWriteLock lockTreeMap = new ReentrantReadWriteLock();
-    // msgTreeMap保存着消费者拉取到的消息中还没有被消费和正在被消费但还没有消费完成的消息
+    // 如果是ConsumeMessageConcurrentlyService对当前队列进行消费，则msgTreeMap保存着消费者拉取到的消息中还没有被消费和正在被消费
+    // 但还没有消费完成的消息
+    // 如果是ConsumeMessageOrderlyService对当前队列进行消费，则msgTreeMap保存着消费者拉取到的消息中还没有被消费的消息
     private final TreeMap<Long, MessageExt> msgTreeMap = new TreeMap<Long, MessageExt>();
     private final AtomicLong msgCount = new AtomicLong();
     private final AtomicLong msgSize = new AtomicLong();
@@ -53,6 +55,7 @@ public class ProcessQueue {
     /**
      * A subset of msgTreeMap, will only be used when orderly consume
      */
+    // 只有在ConsumeMessageOrderlyService对当前队列进行消费时该变量才有用，用于保存正在被消费的消息
     private final TreeMap<Long, MessageExt> consumingMsgOrderlyTreeMap = new TreeMap<Long, MessageExt>();
     private final AtomicLong tryUnlockTimes = new AtomicLong(0);
     private volatile long queueOffsetMax = 0L;
@@ -151,6 +154,9 @@ public class ProcessQueue {
                 // 更新拉取到的消息的总数
                 msgCount.addAndGet(validMsgCnt);
 
+                // this.consuming变量表示当前队列是否有消息正在被消费，主要用于ConsumeMessageOrderlyService类，当当前队列有消息正在
+                // 被消费时，this.consuming为true，此时dispatchToConsume为false，则ConsumeMessageOrderlyService类的submitConsumeRequest
+                // 方法不会再对当前队列创建ConsumeRequest对象执行消费逻辑
                 if (!msgTreeMap.isEmpty() && !this.consuming) {
                     dispatchToConsume = true;
                     this.consuming = true;
@@ -283,12 +289,16 @@ public class ProcessQueue {
         try {
             this.lockTreeMap.writeLock().lockInterruptibly();
             try {
+                // 获取正在被消费的消息中位移的最大值
                 Long offset = this.consumingMsgOrderlyTreeMap.lastKey();
+                // 记录统计信息
                 msgCount.addAndGet(0 - this.consumingMsgOrderlyTreeMap.size());
                 for (MessageExt msg : this.consumingMsgOrderlyTreeMap.values()) {
                     msgSize.addAndGet(0 - msg.getBody().length);
                 }
+                // 清空正在被消息的消息集
                 this.consumingMsgOrderlyTreeMap.clear();
+                // 返回位移的最大值+1
                 if (offset != null) {
                     return offset + 1;
                 }
@@ -318,6 +328,7 @@ public class ProcessQueue {
         }
     }
 
+    // 这个方法之后被ConsumeMessageOrderlyService类调用
     public List<MessageExt> takeMessags(final int batchSize) {
         List<MessageExt> result = new ArrayList<MessageExt>(batchSize);
         final long now = System.currentTimeMillis();
@@ -325,11 +336,17 @@ public class ProcessQueue {
             this.lockTreeMap.writeLock().lockInterruptibly();
             this.lastConsumeTimestamp = now;
             try {
+                // 如果有需要消费的消息
                 if (!this.msgTreeMap.isEmpty()) {
+                    // batchSize参数表示消费者一次能够消费的消息数量
                     for (int i = 0; i < batchSize; i++) {
+                        // msgTreeMap的key为消息位移，value为位移对应的消息。msgTreeMap保存的是拉取到的还没有被消费的消息，这里
+                        // 获取并移除消息位移最小的消息
                         Map.Entry<Long, MessageExt> entry = this.msgTreeMap.pollFirstEntry();
                         if (entry != null) {
+                            // 添加到结果集
                             result.add(entry.getValue());
+                            // 保存消息到consumingMsgOrderlyTreeMap，表示消息正在被消费
                             consumingMsgOrderlyTreeMap.put(entry.getKey(), entry.getValue());
                         } else {
                             break;
@@ -337,6 +354,7 @@ public class ProcessQueue {
                     }
                 }
 
+                // result为空说明没有需要消费的消息，设置consuming为false表示当前队列没有消息正在被消费
                 if (result.isEmpty()) {
                     consuming = false;
                 }
