@@ -447,11 +447,14 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
 
     private OperationResult getHalfMessageByOffset(long commitLogOffset) {
         OperationResult response = new OperationResult();
+        // 根据消息位移查询消息
         MessageExt messageExt = this.transactionalMessageBridge.lookMessageByOffset(commitLogOffset);
         if (messageExt != null) {
+            // 查询成功
             response.setPrepareMessage(messageExt);
             response.setResponseCode(ResponseCode.SUCCESS);
         } else {
+            // 查询失败
             response.setResponseCode(ResponseCode.SYSTEM_ERROR);
             response.setResponseRemark("Find prepared transaction message failed");
         }
@@ -471,6 +474,7 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
 
     @Override
     public OperationResult commitMessage(EndTransactionRequestHeader requestHeader) {
+        // requestHeader.getCommitLogOffset()返回消息位移
         return getHalfMessageByOffset(requestHeader.getCommitLogOffset());
     }
 

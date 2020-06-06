@@ -53,6 +53,7 @@ public class TransactionMQProducer extends DefaultMQProducer {
 
     @Override
     public void start() throws MQClientException {
+        // 如果没有设置线程池，则初始化一个线程池
         this.defaultMQProducerImpl.initTransactionEnv();
         super.start();
     }
@@ -60,6 +61,7 @@ public class TransactionMQProducer extends DefaultMQProducer {
     @Override
     public void shutdown() {
         super.shutdown();
+        // 关闭线程池
         this.defaultMQProducerImpl.destroyTransactionEnv();
     }
 
@@ -87,6 +89,7 @@ public class TransactionMQProducer extends DefaultMQProducer {
         }
 
         msg.setTopic(NamespaceUtil.wrapNamespace(this.getNamespace(), msg.getTopic()));
+        // 事务消息的发送最终是由DefaultMQProducerImpl实现的
         return this.defaultMQProducerImpl.sendMessageInTransaction(msg, null, arg);
     }
 

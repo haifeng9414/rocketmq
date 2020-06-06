@@ -196,13 +196,18 @@ public class TransactionalMessageBridge {
     }
 
     private MessageExtBrokerInner parseHalfMessageInner(MessageExtBrokerInner msgInner) {
+        // 保存事务消息真正的topic
         MessageAccessor.putProperty(msgInner, MessageConst.PROPERTY_REAL_TOPIC, msgInner.getTopic());
+        // 保存事务消息正在的队列id
         MessageAccessor.putProperty(msgInner, MessageConst.PROPERTY_REAL_QUEUE_ID,
             String.valueOf(msgInner.getQueueId()));
         msgInner.setSysFlag(
             MessageSysFlag.resetTransactionValue(msgInner.getSysFlag(), MessageSysFlag.TRANSACTION_NOT_TYPE));
+        // 设置消息的topic为RMQ_SYS_TRANS_HALF_TOPIC，即专门保存half消息的topic
         msgInner.setTopic(TransactionalMessageUtil.buildHalfTopic());
+        // RMQ_SYS_TRANS_HALF_TOPIC这个topic只有一个队列
         msgInner.setQueueId(0);
+        // 保存消息属性
         msgInner.setPropertiesString(MessageDecoder.messageProperties2String(msgInner.getProperties()));
         return msgInner;
     }
@@ -335,6 +340,7 @@ public class TransactionalMessageBridge {
     }
 
     public MessageExt lookMessageByOffset(final long commitLogOffset) {
+        // 返回指定消费位移的消息
         return this.store.lookMessageByOffset(commitLogOffset);
     }
 

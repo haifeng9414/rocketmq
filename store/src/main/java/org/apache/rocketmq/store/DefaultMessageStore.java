@@ -792,11 +792,14 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     public MessageExt lookMessageByOffset(long commitLogOffset) {
+        // 根据位移从commitlog文件获取数据，这里指定获取的数据长度为4B，因为commitlog文件中每个记录的起始位置的4B保存了消息的总长度
         SelectMappedBufferResult sbr = this.commitLog.getMessage(commitLogOffset, 4);
         if (null != sbr) {
             try {
                 // 1 TOTALSIZE
+                // 获取当前消息位移对应的消息记录在commitlog文件中的总长度
                 int size = sbr.getByteBuffer().getInt();
+                // 再次获取消息，并获取消息长度对应的数据量
                 return lookMessageByOffset(commitLogOffset, size);
             } finally {
                 sbr.release();

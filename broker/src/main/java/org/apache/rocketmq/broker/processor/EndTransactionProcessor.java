@@ -56,15 +56,17 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
         final EndTransactionRequestHeader requestHeader =
             (EndTransactionRequestHeader)request.decodeCommandCustomHeader(EndTransactionRequestHeader.class);
         LOGGER.debug("Transaction request:{}", requestHeader);
+        // slave节点不处理事务消息
         if (BrokerRole.SLAVE == brokerController.getMessageStoreConfig().getBrokerRole()) {
             response.setCode(ResponseCode.SLAVE_NOT_AVAILABLE);
             LOGGER.warn("Message store is slave mode, so end transaction is forbidden. ");
             return response;
         }
 
+        // 表示当前的请求是否是由broker向生产者查询事务状态后生产者发送过来的
         if (requestHeader.getFromTransactionCheck()) {
             switch (requestHeader.getCommitOrRollback()) {
-                case MessageSysFlag.TRANSACTION_NOT_TYPE: {
+                case MessageSysFlag.TRANSACTION_NOT_TYPE: { // 如果生产者检查事务状态出现异常或者返回值为空，即事务状态未知
                     LOGGER.warn("Check producer[{}] transaction state, but it's pending status."
                             + "RequestHeader: {} Remark: {}",
                         RemotingHelper.parseChannelRemoteAddr(ctx.channel()),
@@ -96,7 +98,7 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
             }
         } else {
             switch (requestHeader.getCommitOrRollback()) {
-                case MessageSysFlag.TRANSACTION_NOT_TYPE: {
+                case MessageSysFlag.TRANSACTION_NOT_TYPE: { // 如果生产者检查事务状态出现异常或者返回值为空，即事务状态未知
                     LOGGER.warn("The producer[{}] end transaction in sending message,  and it's pending status."
                             + "RequestHeader: {} Remark: {}",
                         RemotingHelper.parseChannelRemoteAddr(ctx.channel()),
@@ -122,26 +124,37 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
             }
         }
         OperationResult result = new OperationResult();
+        // 如果是提交事务
         if (MessageSysFlag.TRANSACTION_COMMIT_TYPE == requestHeader.getCommitOrRollback()) {
+            // 通过TransactionalMessageServiceImpl执行消息提交，实际上只是执行根据消息位移返回消息
             result = this.brokerController.getTransactionalMessageService().commitMessage(requestHeader);
+            // 如果消息查询成功
             if (result.getResponseCode() == ResponseCode.SUCCESS) {
+                // result.getPrepareMessage()就是请求中的消息位移对应的消息，这里对消息获取到的消息和请求中的消息属性做对比，判断
+                // 是否匹配
                 RemotingCommand res = checkPrepareMessage(result.getPrepareMessage(), requestHeader);
                 if (res.getCode() == ResponseCode.SUCCESS) {
+                    // 根据查询到的消息，恢复事务消息原来的属性，如topic、队列id
                     MessageExtBrokerInner msgInner = endMessageTransaction(result.getPrepareMessage());
                     msgInner.setSysFlag(MessageSysFlag.resetTransactionValue(msgInner.getSysFlag(), requestHeader.getCommitOrRollback()));
+                    // 设置消息在队列中的位置
                     msgInner.setQueueOffset(requestHeader.getTranStateTableOffset());
+                    // 设置half消息的位移
                     msgInner.setPreparedTransactionOffset(requestHeader.getCommitLogOffset());
                     msgInner.setStoreTimestamp(result.getPrepareMessage().getStoreTimestamp());
+                    // 清除消息的事务标识
                     MessageAccessor.clearProperty(msgInner, MessageConst.PROPERTY_TRANSACTION_PREPARED);
+                    // 此时msgInner就是个普通消息了，这里通过DefaultMessageStore保存消息
                     RemotingCommand sendResult = sendFinalMessage(msgInner);
                     if (sendResult.getCode() == ResponseCode.SUCCESS) {
+                        // 保存成功
                         this.brokerController.getTransactionalMessageService().deletePrepareMessage(result.getPrepareMessage());
                     }
                     return sendResult;
                 }
                 return res;
             }
-        } else if (MessageSysFlag.TRANSACTION_ROLLBACK_TYPE == requestHeader.getCommitOrRollback()) {
+        } else if (MessageSysFlag.TRANSACTION_ROLLBACK_TYPE == requestHeader.getCommitOrRollback()) { // 如果是回滚事务
             result = this.brokerController.getTransactionalMessageService().rollbackMessage(requestHeader);
             if (result.getResponseCode() == ResponseCode.SUCCESS) {
                 RemotingCommand res = checkPrepareMessage(result.getPrepareMessage(), requestHeader);
@@ -164,6 +177,7 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
     private RemotingCommand checkPrepareMessage(MessageExt msgExt, EndTransactionRequestHeader requestHeader) {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         if (msgExt != null) {
+            // 判断生产者组是否匹配
             final String pgroupRead = msgExt.getProperty(MessageConst.PROPERTY_PRODUCER_GROUP);
             if (!pgroupRead.equals(requestHeader.getProducerGroup())) {
                 response.setCode(ResponseCode.SYSTEM_ERROR);
@@ -171,12 +185,14 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
                 return response;
             }
 
+            // 判断队列中的位移是否匹配
             if (msgExt.getQueueOffset() != requestHeader.getTranStateTableOffset()) {
                 response.setCode(ResponseCode.SYSTEM_ERROR);
                 response.setRemark("The transaction state table offset wrong");
                 return response;
             }
 
+            // 判断消息位移是否匹配
             if (msgExt.getCommitLogOffset() != requestHeader.getCommitLogOffset()) {
                 response.setCode(ResponseCode.SYSTEM_ERROR);
                 response.setRemark("The commit log offset wrong");
@@ -192,8 +208,11 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
     }
 
     private MessageExtBrokerInner endMessageTransaction(MessageExt msgExt) {
+        // 恢复成原来的消息
         MessageExtBrokerInner msgInner = new MessageExtBrokerInner();
+        // 恢复消息的topic
         msgInner.setTopic(msgExt.getUserProperty(MessageConst.PROPERTY_REAL_TOPIC));
+        // 恢复消息的队列
         msgInner.setQueueId(Integer.parseInt(msgExt.getUserProperty(MessageConst.PROPERTY_REAL_QUEUE_ID)));
         msgInner.setBody(msgExt.getBody());
         msgInner.setFlag(msgExt.getFlag());
@@ -218,6 +237,7 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
 
     private RemotingCommand sendFinalMessage(MessageExtBrokerInner msgInner) {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
+        // 保存消息的broker
         final PutMessageResult putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);
         if (putMessageResult != null) {
             switch (putMessageResult.getPutMessageStatus()) {

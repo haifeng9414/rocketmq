@@ -1374,17 +1374,20 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         final LocalTransactionState localTransactionState,
         final Throwable localException) throws RemotingException, MQBrokerException, InterruptedException, UnknownHostException {
         final MessageId id;
-        // 获取消息的MessageId或者UniqKey
+        // 解码消息的MessageId或者UniqKey，获取消息的位移
         if (sendResult.getOffsetMsgId() != null) {
             id = MessageDecoder.decodeMessageId(sendResult.getOffsetMsgId());
         } else {
             id = MessageDecoder.decodeMessageId(sendResult.getMsgId());
         }
+        // 获取事务id
         String transactionId = sendResult.getTransactionId();
         final String brokerAddr = this.mQClientFactory.findBrokerAddressInPublish(sendResult.getMessageQueue().getBrokerName());
         EndTransactionRequestHeader requestHeader = new EndTransactionRequestHeader();
         requestHeader.setTransactionId(transactionId);
+        // 设置消息的位移
         requestHeader.setCommitLogOffset(id.getOffset());
+        // 根据事务状态设置请求的commitOrRollback属性
         switch (localTransactionState) {
             case COMMIT_MESSAGE:
                 requestHeader.setCommitOrRollback(MessageSysFlag.TRANSACTION_COMMIT_TYPE);
@@ -1392,17 +1395,21 @@ public class DefaultMQProducerImpl implements MQProducerInner {
             case ROLLBACK_MESSAGE:
                 requestHeader.setCommitOrRollback(MessageSysFlag.TRANSACTION_ROLLBACK_TYPE);
                 break;
-            case UNKNOW:
+            case UNKNOW: // 本地事务执行失败或者本地事务执行后返回null，则localTransactionState为unknown
                 requestHeader.setCommitOrRollback(MessageSysFlag.TRANSACTION_NOT_TYPE);
                 break;
             default:
                 break;
         }
 
+        // 设置生产者组
         requestHeader.setProducerGroup(this.defaultMQProducer.getProducerGroup());
+        // half发送的队列中保存了多少条消息
         requestHeader.setTranStateTableOffset(sendResult.getQueueOffset());
         requestHeader.setMsgId(sendResult.getMsgId());
+        // 记录本地事务执行的异常信息
         String remark = localException != null ? ("executeLocalTransactionBranch exception: " + localException.toString()) : null;
+        // 发送RequestCode.END_TRANSACTION请求
         this.mQClientFactory.getMQClientAPIImpl().endTransactionOneway(brokerAddr, requestHeader, remark,
             this.defaultMQProducer.getSendMsgTimeout());
     }
