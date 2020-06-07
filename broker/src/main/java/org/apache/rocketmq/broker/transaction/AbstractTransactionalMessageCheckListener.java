@@ -78,6 +78,7 @@ public abstract class AbstractTransactionalMessageCheckListener {
     }
 
     public void resolveHalfMsg(final MessageExt msgExt) {
+        // 异步执行事务消息的回查，不考虑发送结果
         executorService.execute(new Runnable() {
             @Override
             public void run() {
