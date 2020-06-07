@@ -147,7 +147,7 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
                     // 此时msgInner就是个普通消息了，这里通过DefaultMessageStore保存消息
                     RemotingCommand sendResult = sendFinalMessage(msgInner);
                     if (sendResult.getCode() == ResponseCode.SUCCESS) {
-                        // 保存成功
+                        // 保存成功时，创建一个op消息保存到RMQ_SYS_TRANS_OP_HALF_TOPIC这个topic
                         this.brokerController.getTransactionalMessageService().deletePrepareMessage(result.getPrepareMessage());
                     }
                     return sendResult;
@@ -155,7 +155,9 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
                 return res;
             }
         } else if (MessageSysFlag.TRANSACTION_ROLLBACK_TYPE == requestHeader.getCommitOrRollback()) { // 如果是回滚事务
+            // 获取事务消息
             result = this.brokerController.getTransactionalMessageService().rollbackMessage(requestHeader);
+            // 下面的处理过程和提交事务时的处理过程唯一的区别是，下面没有恢复事务消息并保存到DefaultMessageStore中，相当于消息直接被忽略了
             if (result.getResponseCode() == ResponseCode.SUCCESS) {
                 RemotingCommand res = checkPrepareMessage(result.getPrepareMessage(), requestHeader);
                 if (res.getCode() == ResponseCode.SUCCESS) {

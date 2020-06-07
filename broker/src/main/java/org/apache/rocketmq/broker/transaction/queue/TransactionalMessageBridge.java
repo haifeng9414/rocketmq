@@ -273,6 +273,7 @@ public class TransactionalMessageBridge {
     }
 
     private MessageExtBrokerInner makeOpMessageInner(Message message, MessageQueue messageQueue) {
+        // 创建一个op消息
         MessageExtBrokerInner msgInner = new MessageExtBrokerInner();
         msgInner.setTopic(message.getTopic());
         msgInner.setBody(message.getBody());
@@ -308,6 +309,8 @@ public class TransactionalMessageBridge {
      * @return This method will always return true.
      */
     private boolean addRemoveTagInTransactionOp(MessageExt messageExt, MessageQueue messageQueue) {
+        // 创建一条topic为RMQ_SYS_TRANS_OP_HALF_TOPIC的op消息，消息内容是当前消息在RMQ_SYS_TRANS_HALF_TOPIC这个topic下的队列的
+        // 位置（数组位置）
         Message message = new Message(TransactionalMessageUtil.buildOpTopic(), TransactionalMessageUtil.REMOVETAG,
             String.valueOf(messageExt.getQueueOffset()).getBytes(TransactionalMessageUtil.charset));
         writeOp(message, messageQueue);
@@ -319,6 +322,7 @@ public class TransactionalMessageBridge {
         if (opQueueMap.containsKey(mq)) {
             opQueue = opQueueMap.get(mq);
         } else {
+            // 创建一个和mq属性一摸一样的MessageQueue对象
             opQueue = getOpQueueByHalf(mq);
             MessageQueue oldQueue = opQueueMap.putIfAbsent(mq, opQueue);
             if (oldQueue != null) {
@@ -328,6 +332,7 @@ public class TransactionalMessageBridge {
         if (opQueue == null) {
             opQueue = new MessageQueue(TransactionalMessageUtil.buildOpTopic(), mq.getBrokerName(), mq.getQueueId());
         }
+        // makeOpMessageInner方法创建一个op消息对象，putMessage方法将该消息到DefaultMessageStore
         putMessage(makeOpMessageInner(message, opQueue));
     }
 
